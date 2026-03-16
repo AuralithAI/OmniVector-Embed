@@ -125,13 +125,29 @@ jobs:
           pip install torch==2.3.1 --index-url https://download.pytorch.org/whl/cpu
           # Install package with test extras (no deepspeed)
           pip install -e ".[test]"
+          # Add timeout plugin to prevent hanging tests
+          pip install pytest-timeout
 
-      - name: Check free space before tests
-        run: df -h
-
-      - name: Run unit tests
+      - name: Check free space and memory before tests
         run: |
-          pytest tests/unit/ -v --cov=src/omnivector --cov-report=xml --tb=short
+          echo "=== Disk Space ==="
+          df -h
+          echo "=== Memory ==="
+          free -h
+          echo "=== Installed packages ==="
+          pip list | grep -E "torch|transformers|peft"
+
+      - name: Run unit tests (with timeout)
+        run: |
+          pytest tests/unit/ \
+            -v \
+            --cov=src/omnivector \
+            --cov-report=xml \
+            --tb=short \
+            --timeout=60 \
+            --timeout-method=thread \
+            -x
+        timeout-minutes: 15
 
       - name: Upload coverage reports
         uses: codecov/codecov-action@v3
@@ -144,6 +160,9 @@ jobs:
       - name: Aggressive cleanup after tests
         if: always()
         run: |
+          echo "=== Final Disk Space ==="
+          df -h
+          echo "=== Cleaning up ==="
           pip cache purge
           rm -rf ~/.cache/pip || true
           rm -rf ~/.cache/matplotlib || true
@@ -151,6 +170,7 @@ jobs:
           python -c "import gc; gc.collect()"
           sudo apt-get clean
           sudo apt-get autoclean
+          echo "=== Disk space after cleanup ==="
           df -h
 
   build:
