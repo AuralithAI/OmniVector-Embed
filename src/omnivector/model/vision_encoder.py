@@ -5,7 +5,6 @@ Encodes images to 4096-dim embeddings aligned with text embeddings.
 Uses SigLIP-SO400M as the base vision model with projection to target dimension.
 """
 
-
 import logging
 
 import torch

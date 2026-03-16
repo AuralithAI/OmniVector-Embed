@@ -61,10 +61,10 @@ def preprocess_audio(
     try:
         import librosa
         import numpy as np
-    except ImportError:
+    except ImportError as e:
         raise ImportError(
             "librosa required for audio processing. Install with: pip install librosa"
-        )
+        ) from e
 
     if not isinstance(audio_path, str):
         raise ValueError("Audio path must be string")
@@ -72,7 +72,7 @@ def preprocess_audio(
     try:
         audio_data, sr = librosa.load(audio_path, sr=sample_rate)
     except Exception as e:
-        raise ValueError(f"Failed to load audio: {e}")
+        raise ValueError(f"Failed to load audio: {e}") from e
 
     if duration is not None:
         max_samples = int(duration * sample_rate)
@@ -100,10 +100,10 @@ def preprocess_video(
     try:
         import cv2
         import numpy as np
-    except ImportError:
+    except ImportError as e:
         raise ImportError(
             "opencv-python required for video processing. Install with: pip install opencv-python"
-        )
+        ) from e
 
     if not isinstance(video_path, str):
         raise ValueError("Video path must be string")
@@ -111,7 +111,7 @@ def preprocess_video(
     try:
         cap = cv2.VideoCapture(video_path)
     except Exception as e:
-        raise ValueError(f"Failed to open video: {e}")
+        raise ValueError(f"Failed to open video: {e}") from e
 
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = cap.get(cv2.CAP_PROP_FPS)

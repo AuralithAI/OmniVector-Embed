@@ -11,7 +11,7 @@ SDPA internally, which breaks ONNX export. Use explicit matmul-based implementat
 
 import logging
 import math
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -82,7 +82,7 @@ class EagerMultiheadAttention(nn.Module):
         value: torch.Tensor,
         key_padding_mask: Optional[torch.Tensor] = None,
         attn_mask: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass of multihead attention.
 
@@ -109,8 +109,6 @@ class EagerMultiheadAttention(nn.Module):
         k = k.reshape(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
         v = v.reshape(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
         # Now: [batch, num_heads, seq_len, head_dim]
-
-        src_len = k.size(2)
 
         # Compute attention scores: Q @ K^T / sqrt(d_k)
         scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale  # [batch, num_heads, L, L_kv]

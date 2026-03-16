@@ -159,8 +159,6 @@ class EmbeddingDataCollator:
         if not batch:
             raise ValueError("Empty batch")
 
-        batch_size = len(batch)
-
         # Collect inputs
         query_inputs = [item["query"] for item in batch]
         positive_inputs = [item["positive"] for item in batch]

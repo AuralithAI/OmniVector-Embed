@@ -9,7 +9,7 @@ This module provides MistralEmbeddingBackbone which:
 """
 
 import logging
-from typing import Optional, Tuple, Union
+from typing import Optional, Union
 
 import torch
 import torch.nn as nn
@@ -71,7 +71,7 @@ class MistralEmbeddingBackbone(nn.Module):
                 attn_implementation="eager",  # NEVER change this
             )
         except Exception as e:
-            raise ValueError(f"Failed to load model {model_name}: {e}")
+            raise ValueError(f"Failed to load model {model_name}: {e}") from e
 
         self.config = self.model.config
         self.use_lora = use_lora
@@ -104,7 +104,6 @@ class MistralEmbeddingBackbone(nn.Module):
 
         Test: Verify that hidden_state[0] changes when a future token is modified.
         """
-        original_method = self.model._update_causal_mask
 
         def no_causal_mask(*args: tuple, **kwargs: dict) -> None:
             """Return None to disable causal masking."""
@@ -120,7 +119,7 @@ class MistralEmbeddingBackbone(nn.Module):
         token_type_ids: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.Tensor] = None,
         output_hidden_states: bool = False,
-    ) -> Union[torch.Tensor, Tuple[torch.Tensor, ...]]:
+    ) -> Union[torch.Tensor, tuple[torch.Tensor, ...]]:
         """
         Forward pass through the Mistral backbone.
 

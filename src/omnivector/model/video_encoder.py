@@ -5,7 +5,6 @@ Extracts frames from videos and encodes them to 4096-dim embeddings
 using the vision encoder with temporal aggregation.
 """
 
-
 import logging
 
 import torch

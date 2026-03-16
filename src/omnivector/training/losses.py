@@ -1,7 +1,7 @@
 """Training losses including Matryoshka Representation Learning (MRL)."""
 
 import logging
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -24,8 +24,8 @@ class MRLInfoNCELoss(nn.Module):
 
     def __init__(
         self,
-        mrl_dims: Tuple[int, ...] = (512, 1024, 2048, 4096),
-        temperatures: Optional[Tuple[float, ...]] = None,
+        mrl_dims: tuple[int, ...] = (512, 1024, 2048, 4096),
+        temperatures: Optional[tuple[float, ...]] = None,
         device: str = "cuda",
     ) -> None:
         """
@@ -135,7 +135,7 @@ class MRLInfoNCELoss(nn.Module):
 
 
 def create_mrl_loss(
-    mrl_dims: Tuple[int, ...] = (512, 1024, 2048, 4096),
+    mrl_dims: tuple[int, ...] = (512, 1024, 2048, 4096),
 ) -> MRLInfoNCELoss:
     """
     Convenience function to create MRL loss.
