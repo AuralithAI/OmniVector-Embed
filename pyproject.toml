@@ -1,0 +1,192 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "omnivector-embed"
+version = "0.1.0"
+description = "Production-grade multimodal embedding model with ONNX export and int8 quantization"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "AuralithAI"}
+]
+requires-python = ">=3.9"
+keywords = ["embeddings", "multimodal", "onnx", "retrieval", "siamese"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "torch>=2.2.0,<2.4.0",
+    "transformers==4.44.2",
+    "peft==0.12.0",
+    "accelerate>=0.27.0",
+    "numpy>=1.24.0",
+    "pydantic>=2.0.0",
+    "pillow>=9.0.0",
+    "einops>=0.7.0",
+    "tensorboard>=2.14.0",
+    # ONNX export and inference
+    "onnx>=1.16.0",
+    "onnxruntime>=1.18.0",
+    "optimum[onnxruntime]>=1.21.0",
+    # Training and evaluation
+    "deepspeed>=0.14.0",
+    "faiss-cpu>=1.8.0",
+    "mteb>=1.12.0",
+    # Data processing
+    "datasets>=2.16.0",
+    "pyarrow>=14.0.0",
+    "tqdm>=4.66.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-xdist>=3.5.0",
+    "ruff>=0.1.0",
+    "mypy>=1.7.0",
+    "black>=23.12.0",
+    "isort>=5.13.0",
+    "pre-commit>=3.5.0",
+]
+test = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-timeout>=2.1.0",
+    "transformers==4.44.2",
+    "peft==0.12.0",
+    "numpy>=1.24.0",
+    "pydantic>=2.0.0",
+    "pillow>=9.0.0",
+    "einops>=0.7.0",
+    "datasets>=2.16.0",
+    "pyarrow>=14.0.0",
+    "tqdm>=4.66.0",
+    "pyyaml>=6.0",
+    "onnx>=1.16.0",
+    "onnxruntime>=1.18.0",
+    "accelerate>=0.27.0",
+    "librosa>=0.10.0",
+    "soundfile>=0.12.0",
+    "opencv-python>=4.8.0",
+]
+vision = [
+    "timm>=0.9.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/AuralithAI/OmniVector-Embed"
+Documentation = "https://github.com/AuralithAI/OmniVector-Embed#readme"
+Repository = "https://github.com/AuralithAI/OmniVector-Embed.git"
+"Bug Tracker" = "https://github.com/AuralithAI/OmniVector-Embed/issues"
+
+[tool.hatch.version]
+path = "src/omnivector/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/omnivector"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39", "py310", "py311"]
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+exclude = [
+    ".git",
+    "__pycache__",
+    "venv",
+    ".venv",
+    "build",
+    "dist",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # Pyflakes
+    "I",    # isort
+    "C",    # flake8-comprehensions
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+]
+ignore = [
+    "E501",  # line too long
+    "W191",  # indentation contains tabs
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["omnivector"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+check_untyped_defs = true
+strict_optional = true
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "--strict-markers -v --tb=short --timeout=30 --timeout-method=thread -m 'not slow'"
+markers = [
+    "unit: Unit tests that don't require GPU",
+    "integration: Integration tests that may require GPU",
+    "slow: Tests that take a long time to run or download large models",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["src/omnivector"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "*/__main__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "if typing.TYPE_CHECKING:",
+]
