@@ -14,6 +14,8 @@ jobs:
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /usr/share/dotnet
           sudo docker image prune -a --force
+          sudo apt-get clean
+          sudo apt-get autoclean
           df -h
   format:
     name: Code Formatting (Black)
@@ -34,9 +36,14 @@ jobs:
       - name: Run black format check
         run: black --check src/ tests/
 
-      - name: Clear cache
+      - name: Cleanup after format check
         if: always()
-        run: pip cache purge
+        run: |
+          pip cache purge
+          rm -rf ~/.cache/pip || true
+          python -c "import gc; gc.collect()"
+          sudo apt-get clean
+          df -h
 
   lint:
     name: Lint & Format Check (Ruff)
@@ -60,9 +67,14 @@ jobs:
       - name: Run ruff lint check
         run: ruff check src/ tests/
 
-      - name: Clear cache
+      - name: Cleanup after lint check
         if: always()
-        run: pip cache purge
+        run: |
+          pip cache purge
+          rm -rf ~/.cache/pip || true
+          python -c "import gc; gc.collect()"
+          sudo apt-get clean
+          df -h
 
   type-check:
     name: Type Check (MyPy)
@@ -84,11 +96,15 @@ jobs:
         run: mypy src/omnivector/ --strict --no-error-summary 2>&1 | head -50 || true
         continue-on-error: true
 
-      - name: Clear cache
+      - name: Cleanup after type check
         if: always()
         run: |
           pip cache purge
           rm -rf ~/.cache/pip || true
+          rm -rf ~/.cache/torch || true
+          python -c "import gc; gc.collect()"
+          sudo apt-get clean
+          df -h
 
   unit-tests:
     name: Unit Tests
@@ -102,14 +118,31 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install dependencies
+      - name: Install dependencies (lightweight CI)
         run: |
-          pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install --upgrade pip setuptools wheel
+          pip install -r requirements-ci.txt
+          pip install pytest pytest-cov
 
-      - name: Run unit tests
+      - name: Check free space before tests
+        run: df -h
+
+      - name: Run unit tests with memory cleanup
         run: |
-          pytest tests/unit/ -v --cov=src/omnivector --cov-report=xml --tb=short
+          python -c "
+          import gc
+          import sys
+          sys.path.insert(0, 'src')
+          
+          import subprocess
+          result = subprocess.run(
+              ['pytest', 'tests/unit/', '-v', '--cov=src/omnivector', '--cov-report=xml', '--tb=short'],
+              capture_output=False
+          )
+          
+          gc.collect()
+          sys.exit(result.returncode)
+          "
 
       - name: Upload coverage reports
         uses: codecov/codecov-action@v3
@@ -119,11 +152,16 @@ jobs:
           name: codecov-umbrella
           fail_ci_if_error: false
 
-      - name: Clear cache after tests
+      - name: Aggressive cleanup after tests
         if: always()
         run: |
           pip cache purge
           rm -rf ~/.cache/pip || true
+          rm -rf ~/.cache/matplotlib || true
+          rm -rf ~/.cache/torch || true
+          python -c "import gc; gc.collect()"
+          sudo apt-get clean
+          sudo apt-get autoclean
           df -h
 
   build:
@@ -151,3 +189,12 @@ jobs:
 
       - name: Test import
         run: python -c "from omnivector import OmniVectorModel; print('Import successful')"
+
+      - name: Cleanup after build
+        if: always()
+        run: |
+          pip cache purge
+          rm -rf ~/.cache/pip || true
+          python -c "import gc; gc.collect()"
+          sudo apt-get clean
+          df -h
