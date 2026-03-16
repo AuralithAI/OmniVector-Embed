@@ -1,0 +1,127 @@
+name: Evaluate - MTEB & Custom Assays
+
+on:
+  workflow_dispatch:
+    inputs:
+      checkpoint_path:
+        description: "Path to checkpoint (local or HF Hub)"
+        required: true
+        default: "omnivector/omnivector-embed-v0.1"
+      eval_tasks:
+        description: "Evaluation tasks (comma-separated)"
+        required: false
+        default: "retrieval,clustering,sts"
+      output_dir:
+        description: "Output directory for results"
+        required: false
+        default: "eval_results"
+
+jobs:
+  evaluate:
+    name: Run Evaluations
+    runs-on: [self-hosted, gpu]
+    timeout-minutes: 480
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Cache PyTorch
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/torch/
+            ~/.cache/huggingface/
+          key: torch-cache-${{ runner.os }}
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install mteb[beir] datasets
+
+      - name: Download checkpoint
+        run: |
+          mkdir -p checkpoints
+          if [[ "${{ github.event.inputs.checkpoint_path }}" == *"/"* ]]; then
+            # Local path
+            cp -r "${{ github.event.inputs.checkpoint_path }}" checkpoints/model
+          else
+            # HuggingFace Hub
+            python scripts/download_model.py --model_id "${{ github.event.inputs.checkpoint_path }}" --output_dir checkpoints
+          fi
+
+      - name: Run MTEB evaluation
+        run: |
+          python scripts/evaluate.py \
+            --model_name_or_path checkpoints/model \
+            --eval_tasks "${{ github.event.inputs.eval_tasks }}" \
+            --output_dir "${{ github.event.inputs.output_dir }}" \
+            --batch_size 128 \
+            --max_seq_length 512
+
+      - name: Generate evaluation report
+        run: |
+          python scripts/generate_eval_report.py \
+            --results_dir "${{ github.event.inputs.output_dir }}" \
+            --output_file "eval_report.md"
+
+      - name: Upload results as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: eval-results
+          path: |
+            ${{ github.event.inputs.output_dir }}/
+            eval_report.md
+
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('eval_report.md', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '## Evaluation Results\n\n' + report
+            });
+
+      - name: Trigger export if successful
+        if: success()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'export.yml',
+              ref: context.ref,
+              inputs: {
+                checkpoint_path: '${{ github.event.inputs.checkpoint_path }}',
+                quantize_int8: 'true'
+              }
+            });
+
+  notify:
+    name: Notify Results
+    runs-on: ubuntu-latest
+    needs: [evaluate]
+    if: always()
+    steps:
+      - name: Notify Slack on success
+        if: needs.evaluate.result == 'success'
+        run: |
+          echo "✅ Evaluation completed successfully"
+          # Add Slack webhook notification here if configured
+
+      - name: Notify Slack on failure
+        if: needs.evaluate.result == 'failure'
+        run: |
+          echo "❌ Evaluation failed"
+          # Add Slack webhook notification here if configured

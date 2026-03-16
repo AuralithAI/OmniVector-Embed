@@ -1,0 +1,56 @@
+"""DeepSpeed ZeRO-2 Configuration for 2× A100 80GB or 4× RTX 3090 24GB
+
+Tuning notes:
+- micro_batch_size=16, gradient_accumulation_steps=4 → effective batch=128
+- fp16 mixed precision with loss scaling
+- Persistent DeepSpeed offload (optional, for larger models)
+"""
+
+{
+  "fp16": {
+    "enabled": true,
+    "loss_scale": 0,
+    "loss_scale_window": 1000,
+    "initial_scale_power": 16,
+    "hysteresis": 2,
+    "min_loss_scale": 1,
+    "dynamic_loss_scale": true
+  },
+  "optimizer": {
+    "type": "AdamW",
+    "params": {
+      "lr": 2e-5,
+      "betas": [0.9, 0.999],
+      "eps": 1e-8,
+      "weight_decay": 0.01
+    }
+  },
+  "scheduler": {
+    "type": "WarmupDecayLR",
+    "params": {
+      "warmup_min_lr": 0,
+      "warmup_max_lr": 2e-5,
+      "warmup_num_steps": 1000,
+      "total_num_steps": 20000
+    }
+  },
+  "zero_optimization": {
+    "stage": 2,
+    "contiguous_gradients": true,
+    "overlap_comm": true,
+    "reduce_scatter": true,
+    "reduce_bucket_size": 5e8,
+    "allgather_bucket_size": 5e8
+  },
+  "gradient_clipping": 1.0,
+  "activation_checkpointing": {
+    "partition_activations": true,
+    "cpu_checkpointing": false,
+    "contiguous_memory_optimization": false,
+    "number_checkpoints": null,
+    "synchronize_checkpoint_boundary": false,
+    "profile": false
+  },
+  "wall_clock_breakdown": false,
+  "steps_per_print": 100
+}

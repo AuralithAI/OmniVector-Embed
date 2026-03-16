@@ -1,0 +1,12 @@
+# Ruff configuration file (alternative to pyproject.toml section)
+# This can be used as a standalone config if preferred
+
+line-length = 100
+target-version = "py39"
+
+[lint]
+select = ["E", "W", "F", "I", "C", "B", "UP"]
+ignore = ["E501", "W191"]
+
+[lint.isort]
+known-first-party = ["omnivector"]

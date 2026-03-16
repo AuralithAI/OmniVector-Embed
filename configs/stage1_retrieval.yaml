@@ -1,0 +1,69 @@
+"""Stage 1: Retrieval Training Configuration
+
+Key settings:
+- Duration: 20k steps (~2 days on 2× A100 80GB)
+- Learning rate: 2e-5 with cosine annealing
+- Batch size: 128 effective (16 per GPU × 4 gradaccum × 2 GPUs)
+- Data: ~1.5M retrieval pairs (MSMARCO, HotpotQA, NQ, StackExchange, BEIR, MIRACL)
+- Hard negatives: 7 per query, mined with positive-aware threshold (0.95 × pos_score)
+- Loss: InfoNCE + MRL at [512, 1024, 2048, 4096]
+- In-batch negatives: ON (helps retrieval signal)
+"""
+
+training_args:
+  num_train_epochs: 1
+  per_device_train_batch_size: 16
+  per_device_eval_batch_size: 32
+  gradient_accumulation_steps: 4
+  learning_rate: 2.0e-5
+  warmup_steps: 1000
+  max_steps: 20000
+  lr_scheduler_type: cosine
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  logging_steps: 100
+  save_steps: 1000
+  eval_steps: 1000
+  save_total_limit: 3
+  fp16: true
+  dataloader_num_workers: 4
+  dataloader_pin_memory: true
+  remove_unused_columns: false
+  optim: adamw_torch
+  metric_for_best_model: ndcg_at_10
+  greater_is_better: true
+  load_best_model_at_end: true
+
+model_config:
+  model_name: mistralai/Mistral-7B-v0.1
+  use_lora: true
+  lora_rank: 16
+  lora_alpha: 32
+  lora_dropout: 0.1
+
+pooling_config:
+  n_latents: 512
+  num_heads: 8
+  ffn_dim: 2048
+
+loss_config:
+  loss_type: mrl_infonce
+  mrl_dims: [512, 1024, 2048, 4096]
+  temperature: 0.07
+  use_in_batch_negatives: true
+  hard_negative_ratio: 0.7
+
+data_config:
+  train_files:
+    - data/msmarco_train.jsonl
+    - data/hotpotqa_train.jsonl
+    - data/nq_train.jsonl
+    - data/stackexchange_train.jsonl
+    - data/beir_train.jsonl
+    - data/miracl_train.jsonl
+  eval_files:
+    - data/msmarco_dev.jsonl
+  max_seq_length: 512
+  hard_negative_file: data/hard_negatives_stage1.pkl
+
+deepspeed: configs/deepspeed_zero2.json
