@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 class TestMistralEmbeddingBackbone:
     """Test suite for MistralEmbeddingBackbone."""
 
+    @pytest.mark.slow
     @pytest.mark.skipif(torch.cuda.is_available() is False, reason="Backbone too large for CPU")
     def test_instantiation(self):
         """Test backbone can be instantiated."""
@@ -24,6 +25,7 @@ class TestMistralEmbeddingBackbone:
         except Exception as e:
             pytest.skip(f"Cannot instantiate backbone: {e}")
 
+    @pytest.mark.slow
     def test_init_parameters(self):
         """Test initialization parameters are valid."""
         from omnivector.model.backbone import MistralEmbeddingBackbone
@@ -38,6 +40,7 @@ class TestMistralEmbeddingBackbone:
         except Exception:
             pytest.skip("Cannot test parameters")
 
+    @pytest.mark.slow
     def test_lora_initialization(self):
         """Test LoRA initialization."""
         from omnivector.model.backbone import MistralEmbeddingBackbone
@@ -54,6 +57,7 @@ class TestMistralEmbeddingBackbone:
         except Exception:
             pytest.skip("Cannot test LoRA")
 
+    @pytest.mark.slow
     def test_bidirectional_attention_override(self):
         """Test bidirectional attention is enabled."""
         from omnivector.model.backbone import MistralEmbeddingBackbone
@@ -72,6 +76,7 @@ class TestMistralEmbeddingBackbone:
         except Exception:
             pytest.skip("Cannot test attention override")
 
+    @pytest.mark.slow
     def test_hidden_size_property(self):
         """Test hidden size property."""
         from omnivector.model.backbone import MistralEmbeddingBackbone
@@ -84,6 +89,7 @@ class TestMistralEmbeddingBackbone:
         except Exception:
             pytest.skip("Cannot test hidden size")
 
+    @pytest.mark.slow
     def test_trainable_parameters_count(self):
         """Test trainable parameters count."""
         from omnivector.model.backbone import MistralEmbeddingBackbone
@@ -99,6 +105,7 @@ class TestMistralEmbeddingBackbone:
         except Exception:
             pytest.skip("Cannot count parameters")
 
+    @pytest.mark.slow
     @pytest.mark.skipif(torch.cuda.is_available() is False, reason="Requires GPU for forward pass")
     def test_forward_pass(self):
         """Test forward pass with dummy input."""
@@ -120,6 +127,7 @@ class TestMistralEmbeddingBackbone:
         except Exception as e:
             pytest.skip(f"Cannot test forward pass: {e}")
 
+    @pytest.mark.slow
     def test_merge_lora_raises_without_lora(self):
         """Test merge_lora raises error when LoRA not applied."""
         from omnivector.model.backbone import MistralEmbeddingBackbone

@@ -161,11 +161,14 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "--strict-markers -v --tb=short --timeout=60 --timeout-method=thread"
+addopts = "--strict-markers -v --tb=short --timeout=30 --timeout-method=thread -m 'not slow'"
 markers = [
     "unit: Unit tests that don't require GPU",
     "integration: Integration tests that may require GPU",
-    "slow: Tests that take a long time to run",
+    "slow: Tests that take a long time to run or download large models",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
 ]
 
 [tool.coverage.run]

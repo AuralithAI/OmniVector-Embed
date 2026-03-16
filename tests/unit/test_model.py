@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 class TestOmniVectorModel:
     """Test suite for OmniVectorModel."""
 
+    @pytest.mark.slow
     def test_initialization(self):
         """Test OmniVectorModel initialization."""
         from omnivector.model.backbone import MistralEmbeddingBackbone
@@ -27,6 +28,7 @@ class TestOmniVectorModel:
         except Exception as e:
             pytest.skip(f"Cannot initialize model: {e}")
 
+    @pytest.mark.slow
     def test_mrl_dims_validation(self):
         """Test MRL dimensions validation."""
         from omnivector.model.backbone import MistralEmbeddingBackbone
@@ -49,6 +51,7 @@ class TestOmniVectorModel:
         except Exception:
             pytest.skip("Cannot test validation")
 
+    @pytest.mark.slow
     def test_encode_text_single_string(self):
         """Test text encoding with single string."""
         from omnivector.model.omnivector_model import OmniVectorModel
@@ -62,6 +65,7 @@ class TestOmniVectorModel:
         except Exception as e:
             pytest.skip(f"Cannot test encoding: {e}")
 
+    @pytest.mark.slow
     def test_from_pretrained(self):
         """Test from_pretrained class method."""
         from omnivector.model.omnivector_model import OmniVectorModel
@@ -75,6 +79,7 @@ class TestOmniVectorModel:
         except Exception as e:
             pytest.skip(f"Cannot test from_pretrained: {e}")
 
+    @pytest.mark.slow
     def test_save_pretrained(self, tmp_path):
         """Test save_pretrained method."""
         import os
@@ -97,6 +102,7 @@ class TestOmniVectorModel:
         except Exception as e:
             pytest.skip(f"Cannot test save: {e}")
 
+    @pytest.mark.slow
     def test_output_dim_validation_in_encode(self):
         """Test output_dim validation."""
         from omnivector.model.backbone import MistralEmbeddingBackbone

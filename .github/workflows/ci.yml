@@ -137,15 +137,14 @@ jobs:
           echo "=== Installed packages ==="
           pip list | grep -E "torch|transformers|peft"
 
-      - name: Run unit tests (with timeout)
+      - name: Run unit tests (fast tests only, skip model download)
         run: |
           pytest tests/unit/ \
             -v \
             --cov=src/omnivector \
             --cov-report=xml \
             --tb=short \
-            --timeout=60 \
-            --timeout-method=thread \
+            -m 'not slow' \
             -x
         timeout-minutes: 15
 
