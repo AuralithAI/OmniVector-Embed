@@ -91,7 +91,7 @@ jobs:
         if: always()
         run: |
           pip cache purge
-          rm -rf ~/.cache/pip
+          rm -rf ~/.cache/pip || true
 
   unit-tests:
     name: Unit Tests
@@ -127,7 +127,7 @@ jobs:
         if: always()
         run: |
           pip cache purge
-          rm -rf ~/.cache/pip
+          rm -rf ~/.cache/pip || true
           df -h
 
   build:
