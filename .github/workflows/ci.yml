@@ -118,31 +118,20 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install dependencies (lightweight CI)
+      - name: Install dependencies (CPU-only torch, minimal NVIDIA deps)
         run: |
           pip install --upgrade pip setuptools wheel
-          pip install -r requirements-ci.txt
-          pip install pytest pytest-cov
+          # Install CPU-only torch to avoid NVIDIA libs (~1.5GB saved)
+          pip install torch==2.3.1 --index-url https://download.pytorch.org/whl/cpu
+          # Install package with test extras (no deepspeed)
+          pip install -e ".[test]"
 
       - name: Check free space before tests
         run: df -h
 
-      - name: Run unit tests with memory cleanup
+      - name: Run unit tests
         run: |
-          python -c "
-          import gc
-          import sys
-          sys.path.insert(0, 'src')
-          
-          import subprocess
-          result = subprocess.run(
-              ['pytest', 'tests/unit/', '-v', '--cov=src/omnivector', '--cov-report=xml', '--tb=short'],
-              capture_output=False
-          )
-          
-          gc.collect()
-          sys.exit(result.returncode)
-          "
+          pytest tests/unit/ -v --cov=src/omnivector --cov-report=xml --tb=short
 
       - name: Upload coverage reports
         uses: codecov/codecov-action@v3
