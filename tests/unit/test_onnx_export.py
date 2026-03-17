@@ -189,7 +189,7 @@ class TestONNXExporter:
             exporter = ONNXExporter(
                 model=model,
                 output_dir=tmpdir,
-                opset_version=17,
+                opset_version=18,
                 output_dim=128,
             )
             onnx_path = exporter.export(merge_lora=True)
@@ -457,7 +457,7 @@ class TestONNXValidator:
         validator = ONNXValidator(onnx_path)
         info = validator.check_model_structure()
 
-        assert info["opset_version"] >= 17
+        assert info["opset_version"] >= 18
         assert len(info["inputs"]) == 2
         assert len(info["outputs"]) == 1
 

@@ -191,6 +191,23 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
+# ML / Training artifacts
+checkpoints/
+data/
+exports/
+onnx_export/
+release_artifacts/
+wandb/
+runs/
+*.onnx
+*.bin
+*.safetensors
+*.pt
+*.pth
+
+# HuggingFace cache
+.cache/
+
 # PyPI configuration file
 .pypirc
 

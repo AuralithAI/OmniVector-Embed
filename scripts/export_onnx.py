@@ -111,10 +111,7 @@ def main() -> None:
     exporter.validate_onnx(onnx_path)
 
     if args.optimize:
-        from omnivector.export.onnx_quantizer import ONNXQuantizer
-
-        quantizer = ONNXQuantizer(onnx_path, output_dir=args.output_dir)
-        onnx_path = quantizer.optimize(onnx_path)
+        onnx_path = exporter.optimize(onnx_path)
         logger.info(f"Optimized model saved to {onnx_path}")
 
     if args.quantize_int8:

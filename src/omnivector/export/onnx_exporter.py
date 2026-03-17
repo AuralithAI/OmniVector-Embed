@@ -1,7 +1,7 @@
 """ONNX export utilities for OmniVector model.
 
 Provides wrapper and exporter for converting PyTorch model to ONNX format
-with opset 17, dynamic shapes, and LoRA merge support.
+with opset 18, dynamic shapes, and LoRA merge support.
 """
 
 import logging
@@ -150,6 +150,51 @@ class ONNXExporter:
 
         return output_path
 
+    def optimize(self, onnx_path: Optional[str] = None, output_path: Optional[str] = None) -> str:
+        """Apply ORT transformer-specific graph optimizations.
+
+        Fuses LayerNorm, Attention, GELU, and SkipLayerNorm patterns
+        for better inference performance.
+
+        Args:
+            onnx_path: Input ONNX path. Defaults to last exported path.
+            output_path: Output path. Defaults to <output_dir>/omnivector_embed_opt.onnx.
+
+        Returns:
+            Path to optimized ONNX model.
+        """
+        if onnx_path is None:
+            onnx_path = str(self.output_dir / "omnivector_embed.onnx")
+        if output_path is None:
+            output_path = str(self.output_dir / "omnivector_embed_opt.onnx")
+
+        try:
+            from onnxruntime.transformers import optimizer
+
+            opt_model = optimizer.optimize_model(
+                onnx_path,
+                model_type="bert",
+                num_heads=32,
+                hidden_size=4096,
+            )
+            opt_model.save_model_to_file(output_path)
+            logger.info(f"ORT transformer optimization complete: {output_path}")
+        except ImportError:
+            logger.warning(
+                "onnxruntime.transformers not available, falling back to session-level optimization"
+            )
+            import onnxruntime as ort
+
+            sess_options = ort.SessionOptions()
+            sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+            sess_options.optimized_model_filepath = output_path
+            ort.InferenceSession(onnx_path, sess_options, providers=["CPUExecutionProvider"])
+            logger.info(f"Session-level optimization complete: {output_path}")
+
+        opt_mb = os.path.getsize(output_path) / (1024 * 1024)
+        logger.info(f"Optimized model size: {opt_mb:.1f} MB")
+        return output_path
+
     def validate_onnx(self, onnx_path: str) -> bool:
         """Run basic ONNX model validation.
 
@@ -165,3 +210,63 @@ class ONNXExporter:
         onnx.checker.check_model(model)
         logger.info(f"ONNX model validation passed: {onnx_path}")
         return True
+
+    def export_full_pipeline(
+        self,
+        merge_lora: bool = True,
+        optimize: bool = True,
+        quantize: bool = True,
+        validate: bool = True,
+        num_validation_samples: int = 50,
+        validation_threshold: float = 0.99,
+    ) -> dict:
+        """Run complete export pipeline: export -> optimize -> quantize -> validate.
+
+        Args:
+            merge_lora: Whether to merge LoRA before export.
+            optimize: Run ORT graph optimization.
+            quantize: Run int8 dynamic quantization.
+            validate: Run cosine parity validation.
+            num_validation_samples: Number of samples for validation.
+            validation_threshold: Minimum cosine similarity.
+
+        Returns:
+            Dict with paths to all generated artifacts and validation results.
+        """
+        result = {}
+
+        # Export
+        fp32_path = self.export(merge_lora=merge_lora)
+        self.validate_onnx(fp32_path)
+        result["fp32_path"] = fp32_path
+
+        current_path = fp32_path
+
+        # Optimize
+        if optimize:
+            opt_path = self.optimize(current_path)
+            result["optimized_path"] = opt_path
+            current_path = opt_path
+
+        # Quantize
+        if quantize:
+            from omnivector.export.onnx_quantizer import ONNXQuantizer
+
+            quantizer = ONNXQuantizer(current_path, output_dir=str(self.output_dir))
+            int8_path = quantizer.quantize()
+            result["int8_path"] = int8_path
+
+        # Validate
+        if validate:
+            from omnivector.export.onnx_validator import ONNXValidator
+
+            validator = ONNXValidator(fp32_path)
+            parity = validator.validate_parity(
+                pytorch_model=self.model,
+                num_samples=num_validation_samples,
+                threshold=validation_threshold,
+                output_dim=self.output_dim,
+            )
+            result["validation"] = parity
+
+        return result
