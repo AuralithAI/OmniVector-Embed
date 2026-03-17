@@ -8,7 +8,7 @@ class TestDataLoaders:
 
     def test_get_loader_msmarco(self):
         """Test factory function returns MSMARCOLoader."""
-        from omnivector.data.loaders.base import get_loader, MSMARCOLoader
+        from omnivector.data.loaders import get_loader, MSMARCOLoader
 
         loader = get_loader("msmarco")
         assert isinstance(loader, MSMARCOLoader)
@@ -16,7 +16,7 @@ class TestDataLoaders:
 
     def test_get_loader_hotpotqa(self):
         """Test factory function returns HotpotQALoader."""
-        from omnivector.data.loaders.base import get_loader, HotpotQALoader
+        from omnivector.data.loaders import get_loader, HotpotQALoader
 
         loader = get_loader("hotpotqa")
         assert isinstance(loader, HotpotQALoader)
@@ -24,7 +24,7 @@ class TestDataLoaders:
 
     def test_get_loader_beir(self):
         """Test factory function returns BEIRLoader."""
-        from omnivector.data.loaders.base import get_loader, BEIRLoader
+        from omnivector.data.loaders import get_loader, BEIRLoader
 
         loader = get_loader("beir/nfcorpus")
         assert isinstance(loader, BEIRLoader)
@@ -32,7 +32,7 @@ class TestDataLoaders:
 
     def test_get_loader_invalid_dataset(self):
         """Test factory function raises on invalid dataset name."""
-        from omnivector.data.loaders.base import get_loader
+        from omnivector.data.loaders import get_loader
 
         with pytest.raises(ValueError, match="Unknown dataset"):
             get_loader("invalid_dataset")

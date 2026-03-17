@@ -129,8 +129,8 @@ class EagerMultiheadAttention(nn.Module):
 
         # Softmax over source dimension
         attn_weights = torch.softmax(scores, dim=-1)
-        attn_weights = (
-            torch.isnan(attn_weights).any() and torch.zeros_like(attn_weights) or attn_weights
+        attn_weights = torch.where(
+            torch.isnan(attn_weights), torch.zeros_like(attn_weights), attn_weights
         )
 
         # Apply dropout

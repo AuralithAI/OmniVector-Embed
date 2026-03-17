@@ -48,8 +48,11 @@ class MRLInfoNCELoss(nn.Module):
             torch.tensor(temperatures, device=device),
         )
 
-        # Learnable dimension weights
-        self.dim_weights = nn.Parameter(torch.ones(len(mrl_dims)) / len(mrl_dims))
+        # Fixed dimension weights per NV-Embed-v2 spec
+        self.register_buffer(
+            "dim_weights",
+            torch.tensor([0.5, 0.75, 1.0, 1.0][: len(mrl_dims)]),
+        )
 
         logger.info(f"MRLInfoNCELoss initialized: dims={mrl_dims}, temps={temperatures}")
 
@@ -100,13 +103,17 @@ class MRLInfoNCELoss(nn.Module):
             # In-batch negatives (other queries/positives)
             if negative_embeddings is not None:
                 neg_embeddings_slice = negative_embeddings[:, :, :dim]
-                neg_sim = torch.matmul(q_slice, neg_embeddings_slice.transpose(-2, -1))
+                neg_sim = torch.bmm(
+                    q_slice.unsqueeze(1), neg_embeddings_slice.transpose(-2, -1)
+                ).squeeze(1)
                 negatives.append(neg_sim)
 
             # Hard negatives
             if hard_negatives is not None:
                 hard_neg_slice = hard_negatives[:, :, :dim]
-                hard_sim = torch.matmul(q_slice, hard_neg_slice.transpose(-2, -1))
+                hard_sim = torch.bmm(
+                    q_slice.unsqueeze(1), hard_neg_slice.transpose(-2, -1)
+                ).squeeze(1)
                 negatives.append(hard_sim)
 
             # Concatenate all negatives

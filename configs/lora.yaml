@@ -1,0 +1,21 @@
+# LoRA Configuration for OmniVector-Embed
+# Applied to Mistral-7B backbone via PEFT
+
+lora:
+  r: 16
+  lora_alpha: 32
+  lora_dropout: 0.1
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+  bias: "none"
+  task_type: "FEATURE_EXTRACTION"
+  modules_to_save: null
+
+# Merge strategy for ONNX export
+merge:
+  # Always call merge_adapter() before ONNX export
+  # This collapses W + B*A into a single matrix
+  merge_before_export: true

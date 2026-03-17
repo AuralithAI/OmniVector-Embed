@@ -81,11 +81,8 @@ class MSMARCOLoader(BaseDataLoader):
                     pair = EmbeddingPair(
                         query=query,
                         positive=passage,
-                        hard_negatives=[],
-                        metadata={
-                            "source": "msmarco",
-                            "query_id": sample.get("query_id", ""),
-                        },
+                        negatives=[],
+                        domain="retrieval",
                     )
                     pairs.append(pair)
                     break
@@ -153,12 +150,8 @@ class HotpotQALoader(BaseDataLoader):
                         pair = EmbeddingPair(
                             query=query,
                             positive=sent_text,
-                            hard_negatives=[],
-                            metadata={
-                                "source": "hotpotqa",
-                                "doc_title": doc_title,
-                                "sent_idx": sent_idx,
-                            },
+                            negatives=[],
+                            domain="retrieval",
                         )
                         pairs.append(pair)
 
@@ -250,11 +243,8 @@ class BEIRLoader(BaseDataLoader):
             pair = EmbeddingPair(
                 query=query,
                 positive=passage,
-                hard_negatives=[],
-                metadata={
-                    "source": f"beir/{self.benchmark}",
-                    "corpus_id": sample.get("_id", ""),
-                },
+                negatives=[],
+                domain="retrieval",
             )
             pairs.append(pair)
 
