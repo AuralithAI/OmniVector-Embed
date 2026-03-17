@@ -1,12 +1,23 @@
-"""Multimodal training script for joint text + vision embedding training.
+"""Multimodal training script for joint text + vision + audio embedding training.
 
 Usage:
+    # Vision-only (Stage 1/2 multimodal):
     python scripts/train_multimodal.py \
         --config configs/multimodal_vision.yaml \
         --text-data data/text_pairs.jsonl \
         --image-data data/image_text_pairs.jsonl \
         --image-dir data/images/ \
         --output-dir checkpoints/multimodal/
+
+    # Full multimodal with audio:
+    python scripts/train_multimodal.py \
+        --config configs/stage3_multimodal.yaml \
+        --text-data data/text_pairs.jsonl \
+        --image-data data/image_text_pairs.jsonl \
+        --audio-data data/audio_text_pairs.jsonl \
+        --audio-dir data/audio/ \
+        --resume checkpoints/stage2_55M/checkpoint-final \
+        --output-dir checkpoints/stage3/
 """
 
 import argparse
@@ -96,6 +107,25 @@ def parse_args() -> argparse.Namespace:
         default=8,
         help="Number of video frames to sample.",
     )
+    parser.add_argument(
+        "--audio-data",
+        type=str,
+        default=None,
+        help="Path to audio-text training data (JSONL).",
+    )
+    parser.add_argument(
+        "--audio-dir",
+        type=str,
+        default=None,
+        help="Root directory for audio files.",
+    )
+    parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help="Path to checkpoint directory to resume training from. "
+        "Overrides resume_from_checkpoint in YAML config.",
+    )
     return parser.parse_args()
 
 
@@ -123,7 +153,7 @@ def build_samples(args) -> list:
     Returns:
         List of MultimodalSample objects.
     """
-    from omnivector.data.multimodal_dataset import MultimodalSample
+    from omnivector.data.multimodal_dataset import Modality, MultimodalSample
 
     samples = []
 
@@ -188,6 +218,37 @@ def build_samples(args) -> list:
 
         logger.info(f"Loaded {len(samples) - img_count} video-text samples")
 
+    # Load audio-text pairs
+    audio_count = len(samples)
+    if args.audio_data:
+        import json as _json
+
+        audio_path = Path(args.audio_data)
+        if audio_path.exists():
+            with open(audio_path) as f:
+                for line in f:
+                    record = _json.loads(line.strip())
+                    audio_file = record.get("audio_path", record.get("audio", ""))
+                    caption = record.get("caption", record.get("text", ""))
+
+                    if args.audio_dir and audio_file:
+                        audio_file = str(Path(args.audio_dir) / audio_file)
+
+                    if caption:
+                        samples.append(
+                            MultimodalSample(
+                                query_text=caption,
+                                positive_text=caption,
+                                negatives=record.get("negative_captions", []),
+                                query_instruction="Describe the audio",
+                                domain="audio_text",
+                                modality=Modality.AUDIO,
+                                audio_path=audio_file,
+                            )
+                        )
+
+            logger.info(f"Loaded {len(samples) - audio_count} audio-text samples")
+
     if args.max_samples and len(samples) > args.max_samples:
         import random
 
@@ -213,13 +274,21 @@ def main() -> None:
     from omnivector.training.multimodal_loss import MultimodalMRLLoss
     from omnivector.training.multimodal_trainer import MultimodalTrainer
 
+    # Resolve audio encoder config
+    audio_config = config.get("audio_config", {})
+    audio_model_name = audio_config.get("model_name")
+
     # Load model
     if args.text_checkpoint:
         logger.info(f"Loading from checkpoint: {args.text_checkpoint}")
-        model = OmniVectorModel.from_pretrained(args.text_checkpoint)
+        model = OmniVectorModel.from_pretrained(
+            args.text_checkpoint, audio_encoder=audio_model_name,
+        )
     else:
         logger.info("Initializing fresh model")
-        model = OmniVectorModel.from_pretrained("mistralai/Mistral-7B-v0.1")
+        model = OmniVectorModel.from_pretrained(
+            "mistralai/Mistral-7B-v0.1", audio_encoder=audio_model_name,
+        )
 
     tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-v0.1")
     if tokenizer.pad_token is None:
@@ -253,6 +322,10 @@ def main() -> None:
 
     # Training args
     training_config = config.get("training_args", {})
+
+    # Resolve resume checkpoint: CLI --resume overrides YAML config
+    resume_checkpoint = args.resume or training_config.get("resume_from_checkpoint")
+
     training_args = TrainingArguments(
         output_dir=args.output_dir,
         num_train_epochs=training_config.get("num_train_epochs", 1),
@@ -263,13 +336,19 @@ def main() -> None:
         max_steps=training_config.get("max_steps", 10000),
         lr_scheduler_type=training_config.get("lr_scheduler_type", "cosine"),
         weight_decay=training_config.get("weight_decay", 0.01),
-        fp16=training_config.get("fp16", True),
+        bf16=training_config.get("bf16", False),
+        fp16=training_config.get("fp16", False) if not training_config.get("bf16", False) else False,
+        gradient_checkpointing=training_config.get("gradient_checkpointing", True),
         logging_steps=training_config.get("logging_steps", 100),
         save_steps=training_config.get("save_steps", 1000),
         save_total_limit=training_config.get("save_total_limit", 3),
         remove_unused_columns=False,
         dataloader_num_workers=training_config.get("dataloader_num_workers", 4),
+        resume_from_checkpoint=resume_checkpoint,
     )
+
+    if resume_checkpoint:
+        logger.info(f"Will resume from checkpoint: {resume_checkpoint}")
 
     # Trainer
     trainer = MultimodalTrainer(
@@ -283,7 +362,7 @@ def main() -> None:
     )
 
     logger.info("Starting multimodal training")
-    trainer.train()
+    trainer.train(resume_from_checkpoint=resume_checkpoint)
 
     # Save final model
     model.save_pretrained(args.output_dir)

@@ -16,6 +16,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoTokenizer
 
+from omnivector.model.audio_encoder import WhisperAudioEncoder
 from omnivector.model.backbone import MistralEmbeddingBackbone
 from omnivector.model.latent_attention import LatentAttentionPooling
 from omnivector.model.video_encoder import VideoEncoder
@@ -26,13 +27,14 @@ logger = logging.getLogger(__name__)
 
 class OmniVectorModel(nn.Module):
     """
-    Unified multimodal embedding model (text, image, video).
+    Unified multimodal embedding model (text, image, video, audio).
 
     Features:
     - Bidirectional text encoder (Mistral-7B)
     - Latent attention pooling
     - Vision encoder (SigLIP)
     - Video encoder (temporal)
+    - Audio encoder (Whisper)
     - Matryoshka dimensionality (512, 1024, 2048, 4096)
     - ONNX export compatible
 
@@ -41,6 +43,7 @@ class OmniVectorModel(nn.Module):
         pooling: Latent attention pooling
         vision_encoder: Image encoder
         video_encoder: Video encoder
+        audio_encoder: Audio encoder
         output_dim: Output embedding dimension
         mrl_dims: Matryoshka dimensions for MRL training
     """
@@ -50,6 +53,7 @@ class OmniVectorModel(nn.Module):
         backbone: MistralEmbeddingBackbone,
         pooling: LatentAttentionPooling,
         vision_encoder: Optional[SigLIPVisionEncoder] = None,
+        audio_encoder: Optional[WhisperAudioEncoder] = None,
         output_dim: int = 4096,
         mrl_dims: tuple = (512, 1024, 2048, 4096),
     ) -> None:
@@ -60,6 +64,7 @@ class OmniVectorModel(nn.Module):
             backbone: Text encoder (MistralEmbeddingBackbone)
             pooling: Pooling layer (LatentAttentionPooling)
             vision_encoder: Optional vision encoder
+            audio_encoder: Optional audio encoder (Whisper)
             output_dim: Output dimension (default 4096)
             mrl_dims: Matryoshka dimensions
 
@@ -71,6 +76,7 @@ class OmniVectorModel(nn.Module):
         self.backbone = backbone
         self.pooling = pooling
         self.vision_encoder = vision_encoder
+        self.audio_encoder = audio_encoder
         self.output_dim = output_dim
         self.mrl_dims = mrl_dims
 
@@ -98,6 +104,36 @@ class OmniVectorModel(nn.Module):
             self.video_encoder = None
 
         logger.info(f"OmniVectorModel initialized: output_dim={output_dim}, mrl_dims={mrl_dims}")
+
+    def encode_audio(
+        self,
+        audio_features: torch.Tensor,
+        output_dim: int = 4096,
+        normalize: bool = True,
+    ) -> torch.Tensor:
+        """Encode audio spectrograms to embeddings.
+
+        Args:
+            audio_features: Log-mel spectrogram [batch_size, n_mels, seq_len].
+            output_dim: Output dimension (default 4096).
+            normalize: Whether to L2 normalize.
+
+        Returns:
+            Audio embeddings [batch_size, output_dim].
+
+        Raises:
+            RuntimeError: If audio encoder not initialized.
+        """
+        if self.audio_encoder is None:
+            raise RuntimeError("Audio encoder not initialized")
+
+        embeddings = self.audio_encoder(audio_features)
+        embeddings = embeddings[:, :output_dim]
+
+        if normalize:
+            embeddings = F.normalize(embeddings, p=2, dim=-1)
+
+        return embeddings
 
     def encode_text(
         self,
@@ -273,7 +309,9 @@ class OmniVectorModel(nn.Module):
 
         Args:
             model_name_or_path: HuggingFace model ID or local path
-            **kwargs: Additional arguments
+            **kwargs: Additional arguments:
+                - audio_encoder (str): Whisper model name for audio encoder
+                  (e.g., 'whisper-tiny'). If None, no audio encoder.
 
         Returns:
             OmniVectorModel instance
@@ -283,7 +321,15 @@ class OmniVectorModel(nn.Module):
         pooling = LatentAttentionPooling()
         vision_encoder = SigLIPVisionEncoder()
 
-        model = cls(backbone, pooling, vision_encoder)
+        audio_model_name = kwargs.pop("audio_encoder", None)
+        audio_encoder = None
+        if audio_model_name:
+            audio_encoder = WhisperAudioEncoder(model_name=audio_model_name)
+
+        model = cls(
+            backbone, pooling, vision_encoder,
+            audio_encoder=audio_encoder,
+        )
         # Load weights from pretrained if available
         logger.info(f"Loaded OmniVectorModel from {model_name_or_path}")
         return model

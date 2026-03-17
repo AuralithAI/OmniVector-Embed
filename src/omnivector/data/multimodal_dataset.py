@@ -24,10 +24,11 @@ class Modality(str, Enum):
     TEXT = "text"
     IMAGE = "image"
     VIDEO = "video"
+    AUDIO = "audio"
 
 
 class MultimodalSample:
-    """Single training sample that may contain text, image, or video.
+    """Single training sample that may contain text, image, video, or audio.
 
     Attributes:
         query_text: Text query (always present for contrastive learning).
@@ -35,9 +36,10 @@ class MultimodalSample:
         negatives: Hard negative texts.
         query_instruction: Instruction prefix.
         domain: Domain tag.
-        modality: Primary modality (text, image, video).
+        modality: Primary modality (text, image, video, audio).
         image_path: Path to image file (if modality == IMAGE).
         video_path: Path to video file (if modality == VIDEO).
+        audio_path: Path to audio file (if modality == AUDIO).
     """
 
     def __init__(
@@ -50,6 +52,7 @@ class MultimodalSample:
         modality: Modality = Modality.TEXT,
         image_path: Optional[str] = None,
         video_path: Optional[str] = None,
+        audio_path: Optional[str] = None,
     ):
         self.query_text = query_text
         self.positive_text = positive_text
@@ -59,6 +62,7 @@ class MultimodalSample:
         self.modality = modality
         self.image_path = image_path
         self.video_path = video_path
+        self.audio_path = audio_path
 
     @classmethod
     def from_embedding_pair(cls, pair: EmbeddingPair) -> "MultimodalSample":
@@ -98,6 +102,19 @@ class MultimodalSample:
             video_path=video_path,
         )
 
+    @classmethod
+    def from_audio_text(cls, audio_path: str, caption: str, negatives: Optional[list[str]] = None) -> "MultimodalSample":
+        """Create from audio-text pair."""
+        return cls(
+            query_text=caption,
+            positive_text=caption,
+            negatives=negatives or [],
+            query_instruction="Describe the audio",
+            domain="audio_text",
+            modality=Modality.AUDIO,
+            audio_path=audio_path,
+        )
+
 
 class MultimodalDataset(Dataset):
     """Dataset for mixed-modality training.
@@ -120,8 +137,10 @@ class MultimodalDataset(Dataset):
         max_length: int = 512,
         image_transform: Optional[Any] = None,
         video_transform: Optional[Any] = None,
+        audio_transform: Optional[Any] = None,
         image_size: int = 384,
         num_frames: int = 8,
+        audio_sampling_rate: int = 16_000,
     ):
         """Initialize multimodal dataset.
 
@@ -132,16 +151,20 @@ class MultimodalDataset(Dataset):
             image_transform: Image preprocessing transform (PIL -> tensor).
                 If None, uses default resize+normalize.
             video_transform: Video preprocessing transform.
+            audio_transform: Audio preprocessing callable (path -> tensor).
             image_size: Target image size for default transform.
             num_frames: Number of video frames to sample.
+            audio_sampling_rate: Audio sampling rate for Whisper (16kHz).
         """
         self.samples = samples
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.image_transform = image_transform
         self.video_transform = video_transform
+        self.audio_transform = audio_transform
         self.image_size = image_size
         self.num_frames = num_frames
+        self.audio_sampling_rate = audio_sampling_rate
 
         # Count modalities
         counts = {m: 0 for m in Modality}
@@ -151,7 +174,7 @@ class MultimodalDataset(Dataset):
         logger.info(
             f"MultimodalDataset: {len(samples)} samples "
             f"(text={counts[Modality.TEXT]}, image={counts[Modality.IMAGE]}, "
-            f"video={counts[Modality.VIDEO]})"
+            f"video={counts[Modality.VIDEO]}, audio={counts[Modality.AUDIO]})"
         )
 
     def __len__(self) -> int:
@@ -168,6 +191,7 @@ class MultimodalDataset(Dataset):
             - modality: str modality type
             - image: tensor [3, H, W] or None
             - video: tensor [n_frames, 3, H, W] or None
+            - audio: tensor [n_mels, seq_len] or None
             - domain: str domain tag
         """
         sample = self.samples[idx]
@@ -213,6 +237,7 @@ class MultimodalDataset(Dataset):
             "domain": sample.domain,
             "image": None,
             "video": None,
+            "audio": None,
         }
 
         # Load image if applicable
@@ -222,6 +247,10 @@ class MultimodalDataset(Dataset):
         # Load video if applicable
         if sample.modality == Modality.VIDEO and sample.video_path:
             result["video"] = self._load_video(sample.video_path)
+
+        # Load audio if applicable
+        if sample.modality == Modality.AUDIO and sample.audio_path:
+            result["audio"] = self._load_audio(sample.audio_path)
 
         return result
 
@@ -287,6 +316,51 @@ class MultimodalDataset(Dataset):
             logger.warning(f"Failed to load video {video_path}: {e}")
             return None
 
+    def _load_audio(self, audio_path: str) -> Optional[torch.Tensor]:
+        """Load and preprocess audio to log-mel spectrogram.
+
+        Args:
+            audio_path: Path to audio file (.wav, .mp3, .flac).
+
+        Returns:
+            Log-mel spectrogram tensor [n_mels, seq_len] or None on failure.
+        """
+        try:
+            if self.audio_transform:
+                return self.audio_transform(audio_path)
+
+            # Default: load audio with librosa and convert to Whisper features
+            import librosa
+
+            waveform, sr = librosa.load(
+                audio_path,
+                sr=self.audio_sampling_rate,
+                mono=True,
+            )
+
+            # Use Whisper feature extractor if available
+            try:
+                from transformers import WhisperFeatureExtractor
+
+                extractor = WhisperFeatureExtractor.from_pretrained("openai/whisper-tiny")
+                features = extractor(
+                    waveform,
+                    sampling_rate=self.audio_sampling_rate,
+                    return_tensors="pt",
+                )
+                return features.input_features[0]  # [n_mels, seq_len]
+            except (ImportError, OSError):
+                # Fallback: compute log-mel manually
+                mel = librosa.feature.melspectrogram(
+                    y=waveform, sr=sr, n_mels=80, n_fft=400, hop_length=160,
+                )
+                log_mel = librosa.power_to_db(mel, ref=np.max)
+                return torch.from_numpy(log_mel.astype(np.float32))
+
+        except Exception as e:
+            logger.warning(f"Failed to load audio {audio_path}: {e}")
+            return None
+
 
 class MultimodalCollator:
     """Collates mixed-modality batches for training.
@@ -329,9 +403,9 @@ class MultimodalCollator:
             - negative_input_ids, negative_attention_mask
             - images: [batch_size, 3, H, W] or None
             - videos: [batch_size, n_frames, 3, H, W] or None
+            - audio_features: [batch_size, n_mels, seq_len] or None
             - modalities: list[str] per sample
-            - has_images: bool
-            - has_videos: bool
+            - has_images, has_videos, has_audio: bool
         """
         if not batch:
             raise ValueError("Empty batch")
@@ -404,6 +478,21 @@ class MultimodalCollator:
             videos_tensor = None
             video_mask = None
 
+        # Collate audio
+        audios = [b.get("audio") for b in batch]
+        has_audio = any(aud is not None for aud in audios)
+
+        if has_audio:
+            ref_aud = next(aud for aud in audios if aud is not None)
+            audios_tensor = torch.stack([
+                aud if aud is not None else torch.zeros_like(ref_aud)
+                for aud in audios
+            ])
+            audio_mask = torch.tensor([aud is not None for aud in audios], dtype=torch.bool)
+        else:
+            audios_tensor = None
+            audio_mask = None
+
         modalities = [b["modality"] for b in batch]
 
         return {
@@ -417,7 +506,10 @@ class MultimodalCollator:
             "image_mask": image_mask,
             "videos": videos_tensor,
             "video_mask": video_mask,
+            "audio_features": audios_tensor,
+            "audio_mask": audio_mask,
             "modalities": modalities,
             "has_images": has_images,
             "has_videos": has_videos,
+            "has_audio": has_audio,
         }

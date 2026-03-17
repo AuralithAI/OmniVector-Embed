@@ -1,12 +1,12 @@
-"""Stage 2: Generalist Fine-tuning Configuration
-
-Key differences from Stage 1:
-- In-batch negatives: OFF (prevents signal corruption on clustering/STS)
-- Duration: 18k steps (~1.5 days on 2× A100 80GB)
-- Resume from Stage 1 checkpoint
-- Data: Stage 1 + 120k synthetic + 50k custom (Siemens, TensorRT, PRs)
-- Lower learning rate: 1.5e-5
-"""
+# Generalist Fine-tuning Configuration
+#
+# Key differences from retrieval:
+# - In-batch negatives: OFF (prevents signal corruption on clustering/STS)
+# - Duration: 18k steps (~1.5 days on 2x A100 80GB)
+# - Resume from retrieval checkpoint
+# - Data: retrieval + synthetic + custom (55M target)
+# - Lower learning rate: 1.5e-5
+# - bf16 for better numerical stability
 
 training_args:
   num_train_epochs: 1
@@ -22,12 +22,14 @@ training_args:
   logging_steps: 100
   save_steps: 1000
   eval_steps: 1000
-  save_total_limit: 2
-  fp16: true
+  save_total_limit: 3
+  bf16: true
+  gradient_checkpointing: true
   dataloader_num_workers: 4
   dataloader_pin_memory: true
   remove_unused_columns: false
   optim: adamw_torch
+  resume_from_checkpoint: checkpoints/stage1_8M/checkpoint-final
 
 model_config:
   model_name: mistralai/Mistral-7B-v0.1
@@ -35,6 +37,7 @@ model_config:
   lora_rank: 16
   lora_alpha: 32
   lora_dropout: 0.1
+  output_dim: 4096
 
 pooling_config:
   n_latents: 512
@@ -49,20 +52,8 @@ loss_config:
   hard_negative_ratio: 0.5
 
 data_config:
-  train_files:
-    - data/msmarco_train.jsonl
-    - data/hotpotqa_train.jsonl
-    - data/nq_train.jsonl
-    - data/stackexchange_train.jsonl
-    - data/beir_train.jsonl
-    - data/miracl_train.jsonl
-    - data/synthetic_stage2.jsonl  # 120k synthetic pairs
-    - data/custom_siemens.jsonl    # 50k Siemens monoliths
-    - data/custom_tensorrt.jsonl   # TensorRT docs
-    - data/custom_prdiffs.jsonl    # PR diffs
-  eval_files:
-    - data/msmarco_dev.jsonl
-    - data/custom_eval.jsonl
+  data_path: data/stage2_55M
+  multimodal_ratio: 0.3
   max_seq_length: 512
   hard_negative_file: data/hard_negatives_stage2.pkl
 

@@ -1,7 +1,7 @@
-"""Cross-modal contrastive loss for vision-text alignment.
+"""Cross-modal contrastive loss for vision-text-audio alignment.
 
-Implements CLIP-style contrastive learning between image/video embeddings
-and text embeddings, with MRL support for multiple dimensions.
+Implements CLIP-style contrastive learning between image/video/audio
+embeddings and text embeddings, with MRL support for multiple dimensions.
 """
 
 import logging
@@ -120,11 +120,11 @@ class MultimodalMRLLoss(nn.Module):
     """Combined loss for joint text-retrieval and cross-modal training.
 
     Computes text-text MRL InfoNCE loss plus cross-modal contrastive loss
-    with a configurable mixing weight.
+    for both vision-text and audio-text alignment with configurable weights.
 
     Attributes:
         text_loss: MRLInfoNCELoss for text-text pairs.
-        cross_modal_loss: CrossModalContrastiveLoss for vision-text alignment.
+        cross_modal_loss: CrossModalContrastiveLoss for vision/audio-text.
         cross_modal_weight: Weight for cross-modal loss relative to text loss.
     """
 
@@ -160,6 +160,9 @@ class MultimodalMRLLoss(nn.Module):
         visual_embeddings: Optional[torch.Tensor] = None,
         text_for_visual: Optional[torch.Tensor] = None,
         visual_mask: Optional[torch.Tensor] = None,
+        audio_embeddings: Optional[torch.Tensor] = None,
+        text_for_audio: Optional[torch.Tensor] = None,
+        audio_mask: Optional[torch.Tensor] = None,
     ) -> dict:
         """Compute combined text + cross-modal loss.
 
@@ -170,6 +173,9 @@ class MultimodalMRLLoss(nn.Module):
             visual_embeddings: Image/video embeddings [batch, dim] or None.
             text_for_visual: Text embeddings paired with visuals [batch, dim].
             visual_mask: Mask for valid visual samples [batch].
+            audio_embeddings: Audio embeddings [batch, dim] or None.
+            text_for_audio: Text embeddings paired with audio [batch, dim].
+            audio_mask: Mask for valid audio samples [batch].
 
         Returns:
             Dict with total loss and all component losses.
@@ -187,7 +193,7 @@ class MultimodalMRLLoss(nn.Module):
             text_loss = torch.tensor(text_loss, dtype=torch.float32)
         total_loss = text_loss
 
-        # Cross-modal loss (if visual data present)
+        # Cross-modal loss — vision (if visual data present)
         if visual_embeddings is not None and text_for_visual is not None:
             cm_result = self.cross_modal_loss(
                 visual_embeddings=visual_embeddings,
@@ -203,6 +209,25 @@ class MultimodalMRLLoss(nn.Module):
                     result[k] = v
 
             result["cross_modal_loss_weighted"] = (self.cross_modal_weight * cm_loss).item()
+
+        # Cross-modal loss — audio (if audio data present)
+        if audio_embeddings is not None and text_for_audio is not None:
+            audio_cm_result = self.cross_modal_loss(
+                visual_embeddings=audio_embeddings,
+                text_embeddings=text_for_audio,
+                visual_mask=audio_mask,
+            )
+
+            audio_cm_loss = audio_cm_result["loss"]
+            total_loss = total_loss + self.cross_modal_weight * audio_cm_loss
+
+            for k, v in audio_cm_result.items():
+                if k != "loss":
+                    result[f"audio_{k}"] = v
+
+            result["audio_cross_modal_loss_weighted"] = (
+                self.cross_modal_weight * audio_cm_loss
+            ).item()
 
         result["loss"] = total_loss
         result["text_loss"] = text_loss.item() if isinstance(text_loss, torch.Tensor) else float(text_loss)

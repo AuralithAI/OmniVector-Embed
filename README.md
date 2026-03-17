@@ -18,19 +18,21 @@
 | **FAISS** | CPU (IndexFlatIP) |
 | **Base Model** | Mistral-7B-v0.1 |
 | **Vision Encoder** | SigLIP-SO400M |
+| **Audio Encoder** | Whisper-tiny (384→4096) |
 | **Quantization** | Dynamic INT8 |
 
-Production-grade multimodal embedding model that replicates and extends [NV-Embed-v2](https://arxiv.org/abs/2405.17428). Unified 4096-dimensional embeddings for text, code, image, and video — with ONNX export and int8 quantization for deployment.
+Production-grade multimodal embedding model that replicates and extends [NV-Embed-v2](https://arxiv.org/abs/2405.17428). Unified 4096-dimensional embeddings for text, code, image, video, and audio — with ONNX export and int8 quantization for deployment.
 
 ## Key Differentiators
 
 | Feature | NV-Embed-v2 | OmniVector-Embed |
 |---|---|---|
 | ONNX export | Not possible (SDPA ops) | Opset 18 + int8 quantization |
-| Modalities | Text only | Text + Code + Image + Video |
+| Modalities | Text only | Text + Code + Image + Video + Audio |
 | Attention | SDPA/Flash | Eager bidirectional (export-safe) |
 | Deployment | GPU-only inference | CPU/GPU via ORT |
 | Fine-tuning | Full fine-tune | LoRA (rank 16, 0.1% params) |
+| Training stages | 2-stage | 3-stage (retrieval → generalist → multimodal) |
 
 ## Architecture
 
@@ -44,8 +46,12 @@ Input → Mistral-7B (bidirectional, eager attention, LoRA)
 - **Backbone**: `mistralai/Mistral-7B-v0.1` with `_update_causal_mask → None` for bidirectional attention
 - **Pooling**: Cross-attention with learned latent queries, followed by mean pooling
 - **Vision**: SigLIP-SO400M (1152 → 4096 projection) for images, temporal attention for video
-- **Loss**: InfoNCE + MRL with in-batch negatives and FAISS hard negative mining
-- **Training**: 2-stage (Stage 1: retrieval 20k steps, Stage 2: generalist 18k steps) with DeepSpeed ZeRO-2
+- **Audio**: Whisper-tiny encoder (384 → 4096 via 2-layer MLP projection) with mean pooling
+- **Loss**: InfoNCE + MRL with in-batch negatives, FAISS hard negative mining, and cross-modal contrastive loss
+- **Training**: 3-stage with DeepSpeed ZeRO-2:
+  - Stage 1: Retrieval (8M pairs, 20k steps, LR 2e-5)
+  - Stage 2: Generalist (55M pairs, 18k steps, LR 1.5e-5, in-batch negatives OFF)
+  - Stage 3: Multimodal alignment (12k steps, LR 5e-6, cross-modal weight 0.2)
 
 See [docs/architecture.md](docs/architecture.md) for a detailed component guide.
 
@@ -96,17 +102,25 @@ embedding = model.encode_image(image, output_dim=4096)
 embedding = model.encode_video("clip.mp4", output_dim=4096)
 ```
 
+### Encode audio
+
+```python
+embedding = model.encode_audio(audio_features, output_dim=4096)
+```
+
 ## Training
 
 ### 1. Build dataset
 
 ```bash
-# Text-only (MSMARCO, HotpotQA, BEIR)
-python scripts/build_dataset.py --stage 1 --output-dir data/stage1
-
-# With multimodal data (LAION, WebVid, CodeSearchNet) targeting 8M pairs
+# Stage 1: Text + multimodal, 8M pairs
 python scripts/build_dataset.py --stage 1 --multimodal --target 8000000 \
     --teacher-model BAAI/bge-large-en-v1.5 --output-dir data/stage1_8M
+
+# Stage 2: 55M pairs with synthetic data and custom datasets
+python scripts/build_dataset.py --stage 2 --multimodal --target 55000000 \
+    --add-synthetic 200000 --add-custom path/to/custom_data \
+    --output-dir data/stage2_55M
 ```
 
 ### 2. Mine hard negatives (optional, offline)
@@ -124,12 +138,20 @@ python scripts/mine_hard_negatives.py \
 # Stage 1: Retrieval (20k steps, 2× A100 80GB)
 python scripts/training.py --config configs/stage1_retrieval.yaml
 
-# Stage 2: Generalist (18k steps)
+# Stage 2: Generalist (18k steps, resumes from Stage 1)
 python scripts/training.py --config configs/stage2_generalist.yaml
 
-# Multimodal (image + video)
-python scripts/train_multimodal.py --config configs/multimodal_vision.yaml
+# Stage 3: Multimodal alignment (12k steps, text + image + video + audio)
+python scripts/train_multimodal.py \
+    --config configs/stage3_multimodal.yaml \
+    --text-data data/text_pairs.jsonl \
+    --image-data data/image_text_pairs.jsonl \
+    --audio-data data/audio_text_pairs.jsonl \
+    --audio-dir data/audio/ \
+    --resume checkpoints/stage2_55M/checkpoint-final
 ```
+
+All training scripts support `--resume <checkpoint>` to continue from a previous run.
 
 ### 4. Evaluate
 
@@ -185,15 +207,16 @@ output = session.run(None, {
 OmniVector-Embed/
 ├── configs/                        # Training & model configs
 │   ├── stage1_retrieval.yaml       # Stage 1: 20k steps, LR 2e-5, 8M pairs
-│   ├── stage2_generalist.yaml      # Stage 2: 18k steps, LR 1.5e-5
+│   ├── stage2_generalist.yaml      # Stage 2: 18k steps, LR 1.5e-5, 55M pairs
+│   ├── stage3_multimodal.yaml      # Stage 3: 12k steps, cross-modal alignment
 │   ├── multimodal_vision.yaml      # Image + video training
 │   ├── lora.yaml                   # LoRA hyperparameters
 │   └── deepspeed_zero2.json        # ZeRO-2 config
 ├── scripts/                        # CLI entry points
-│   ├── build_dataset.py            # Data pipeline (text + multimodal)
+│   ├── build_dataset.py            # Data pipeline (text + multimodal + synthetic)
 │   ├── mine_hard_negatives.py      # Offline FAISS hard negative mining
-│   ├── training.py                 # Text training
-│   ├── train_multimodal.py         # Multimodal training
+│   ├── training.py                 # Text training (JSON/YAML configs, --resume)
+│   ├── train_multimodal.py         # Multimodal training (vision + audio, --resume)
 │   ├── export_onnx.py              # ONNX export + optimize + quantize
 │   ├── quantize_onnx.py            # Standalone quantization
 │   └── evaluate.py                 # MTEB evaluation
@@ -201,9 +224,10 @@ OmniVector-Embed/
 │   ├── model/
 │   │   ├── backbone.py             # Bidirectional Mistral-7B + LoRA
 │   │   ├── latent_attention.py     # Latent attention pooling
-│   │   ├── omnivector_model.py     # Main model (encode_text/image/video)
+│   │   ├── omnivector_model.py     # Main model (encode_text/image/video/audio)
 │   │   ├── vision_encoder.py       # SigLIP-SO400M encoder
-│   │   └── video_encoder.py        # Temporal video encoder
+│   │   ├── video_encoder.py        # Temporal video encoder
+│   │   └── audio_encoder.py        # Whisper audio encoder (384→4096)
 │   ├── data/
 │   │   ├── schema.py               # EmbeddingPair Pydantic schema
 │   │   ├── preprocessing.py        # Tokenization + collation
@@ -213,7 +237,7 @@ OmniVector-Embed/
 │   │   ├── trainer.py              # OmniVectorTrainer (HF Trainer subclass)
 │   │   ├── multimodal_trainer.py   # MultimodalTrainer
 │   │   ├── losses.py               # MRL InfoNCE loss
-│   │   ├── multimodal_loss.py      # Cross-modal contrastive + MRL loss
+│   │   ├── multimodal_loss.py      # Cross-modal contrastive (vision+audio) + MRL
 │   │   ├── callbacks.py            # Hard neg refresh, logging, early stop
 │   │   └── hard_negative_miner.py  # FAISS IndexFlatIP miner
 │   ├── export/
@@ -222,7 +246,7 @@ OmniVector-Embed/
 │   │   └── onnx_validator.py       # Cosine parity validation
 │   └── eval/                       # MTEB evaluation utilities
 ├── tests/
-│   ├── unit/                       # ~100 unit tests
+│   ├── unit/                       # ~220 unit tests
 │   └── integration/                # ONNX parity, data loading
 ├── docs/
 │   └── architecture.md             # Detailed architecture guide
