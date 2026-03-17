@@ -11,9 +11,9 @@ on:
         required: false
         default: "true"
       opset_version:
-        description: "ONNX opset version"
+        description: "ONNX opset version (18+ required for PyTorch dynamo)"
         required: false
-        default: "17"
+        default: "18"
   workflow_run:
     workflows: ["Evaluate - MTEB & Custom Assays"]
     types: [completed]
@@ -50,32 +50,35 @@ jobs:
           if [[ "${{ github.event.inputs.checkpoint_path }}" == *"/"* ]]; then
             cp -r "${{ github.event.inputs.checkpoint_path }}" checkpoints/model
           else
-            python scripts/download_model.py --model_id "${{ github.event.inputs.checkpoint_path }}" --output_dir checkpoints
+            pip install huggingface_hub
+            python -c "
+            from huggingface_hub import snapshot_download
+            snapshot_download('${{ github.event.inputs.checkpoint_path }}', local_dir='checkpoints/model')
+            "
           fi
 
       - name: Export to ONNX
         run: |
           python scripts/export_onnx.py \
-            --model_name_or_path checkpoints/model \
-            --output_dir exports/ \
-            --opset_version ${{ github.event.inputs.opset_version }} \
-            --optimize_model
+            --model-path checkpoints/model \
+            --output-dir exports/ \
+            --opset-version ${{ github.event.inputs.opset_version }} \
+            --optimize
 
       - name: Quantize to int8
         if: github.event.inputs.quantize_int8 == 'true'
         run: |
           python scripts/quantize_onnx.py \
-            --model_path exports/omnivector_embed.onnx \
-            --output_path exports/omnivector_embed_int8.onnx \
-            --weight_type int8
+            --onnx-path exports/omnivector_embed.onnx \
+            --output-dir exports/
 
       - name: Validate ONNX parity
         run: |
           python scripts/validate_onnx.py \
-            --pytorch_model checkpoints/model \
-            --onnx_model exports/omnivector_embed.onnx \
-            --num_samples 50 \
-            --similarity_threshold 0.99
+            --pytorch-model checkpoints/model \
+            --onnx-model exports/omnivector_embed.onnx \
+            --num-samples 50 \
+            --threshold 0.99
 
       - name: Calculate model size
         run: |
@@ -119,15 +122,15 @@ jobs:
         run: |
           pip install huggingface_hub
           python scripts/upload_to_hub.py \
-            --repo_id omnivector/omnivector-embed-onnx \
-            --onnx_path exports/omnivector_embed.onnx \
-            --onnx_quantized_path exports/omnivector_embed_int8.onnx
+            --repo-id omnivector/omnivector-embed-onnx \
+            --onnx-path exports/omnivector_embed.onnx \
+            --onnx-quantized-path exports/omnivector_embed_int8.onnx
 
       - name: Generate export report
         run: |
           python scripts/generate_export_report.py \
-            --release_dir release_artifacts/ \
-            --output_file export_report.md
+            --release-dir release_artifacts/ \
+            --output-file export_report.md
 
       - name: Upload export report
         uses: actions/upload-artifact@v3

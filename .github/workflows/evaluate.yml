@@ -52,7 +52,11 @@ jobs:
             cp -r "${{ github.event.inputs.checkpoint_path }}" checkpoints/model
           else
             # HuggingFace Hub
-            python scripts/download_model.py --model_id "${{ github.event.inputs.checkpoint_path }}" --output_dir checkpoints
+            pip install huggingface_hub
+            python -c "
+            from huggingface_hub import snapshot_download
+            snapshot_download('${{ github.event.inputs.checkpoint_path }}', local_dir='checkpoints/model')
+            "
           fi
 
       - name: Run MTEB evaluation
@@ -67,8 +71,8 @@ jobs:
       - name: Generate evaluation report
         run: |
           python scripts/generate_eval_report.py \
-            --results_dir "${{ github.event.inputs.output_dir }}" \
-            --output_file "eval_report.md"
+            --results-dir "${{ github.event.inputs.output_dir }}" \
+            --output-file "eval_report.md"
 
       - name: Upload results as artifact
         uses: actions/upload-artifact@v3

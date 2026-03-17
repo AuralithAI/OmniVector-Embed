@@ -1,14 +1,9 @@
-"""Stage 1: Retrieval Training Configuration
-
-Key settings:
-- Duration: 20k steps (~2 days on 2× A100 80GB)
-- Learning rate: 2e-5 with cosine annealing
-- Batch size: 128 effective (16 per GPU × 4 gradaccum × 2 GPUs)
-- Data: ~1.5M retrieval pairs (MSMARCO, HotpotQA, NQ, StackExchange, BEIR, MIRACL)
-- Hard negatives: 7 per query, mined with positive-aware threshold (0.95 × pos_score)
-- Loss: InfoNCE + MRL at [512, 1024, 2048, 4096]
-- In-batch negatives: ON (helps retrieval signal)
-"""
+# Retrieval Training Configuration
+#
+# Duration: 20k steps (~2 days on 2x A100 80GB, ~1 day on H100)
+# Effective batch: 128 (16/GPU x 4 grad_accum x 2 GPUs)
+# Data: ~7-8M pairs (text retrieval + multimodal)
+# Target: MSMARCO NDCG@10 >= 0.52, MTEB preview >= 65
 
 training_args:
   num_train_epochs: 1
@@ -22,14 +17,15 @@ training_args:
   weight_decay: 0.01
   max_grad_norm: 1.0
   logging_steps: 100
-  save_steps: 1000
-  eval_steps: 1000
+  save_steps: 2000
+  eval_steps: 2000
   save_total_limit: 3
-  fp16: true
+  bf16: true
   dataloader_num_workers: 4
   dataloader_pin_memory: true
   remove_unused_columns: false
   optim: adamw_torch
+  gradient_checkpointing: true
   metric_for_best_model: ndcg_at_10
   greater_is_better: true
   load_best_model_at_end: true
@@ -51,19 +47,16 @@ loss_config:
   mrl_dims: [512, 1024, 2048, 4096]
   temperature: 0.07
   use_in_batch_negatives: true
-  hard_negative_ratio: 0.7
+  hard_negatives: 7
+  positive_aware_threshold: 0.95
 
 data_config:
-  train_files:
-    - data/msmarco_train.jsonl
-    - data/hotpotqa_train.jsonl
-    - data/nq_train.jsonl
-    - data/stackexchange_train.jsonl
-    - data/beir_train.jsonl
-    - data/miracl_train.jsonl
+  data_path: data/stage1_8M
+  train_file: data/stage1_8M/train.jsonl
   eval_files:
     - data/msmarco_dev.jsonl
   max_seq_length: 512
-  hard_negative_file: data/hard_negatives_stage1.pkl
+  multimodal: true
+  multimodal_ratio: 0.4
 
 deepspeed: configs/deepspeed_zero2.json
