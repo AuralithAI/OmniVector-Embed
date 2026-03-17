@@ -1,19 +1,167 @@
-"""
-ONNX export utilities (placeholder).
+"""ONNX export utilities for OmniVector model.
 
-Will implement:
-- OmniVectorONNXWrapper: Wraps model for ONNX export
-- torch.onnx.export with opset 17
-- Dynamic shape handling
+Provides wrapper and exporter for converting PyTorch model to ONNX format
+with opset 17, dynamic shapes, and LoRA merge support.
 """
 
 import logging
+import os
+from pathlib import Path
+from typing import Optional
+
+import torch
+import torch.nn as nn
 
 logger = logging.getLogger(__name__)
 
-# ONNX export will be implemented in Week 4
-# Key requirements:
-# - LoRA merge before export
-# - Dynamic batch size and sequence length
-# - Opset 17 for LayerNorm native op support
-# - No SDPA/custom ops (use eager attention)
+
+class OmniVectorONNXWrapper(nn.Module):
+    """Wrapper that exposes a clean forward signature for ONNX export.
+
+    Strips away tokenizer logic, multimodal routing, and other
+    non-exportable components. Accepts raw token IDs and attention mask,
+    returns L2-normalized embeddings.
+    """
+
+    def __init__(self, backbone: nn.Module, pooling: nn.Module, output_dim: int = 4096):
+        """Initialize ONNX wrapper.
+
+        Args:
+            backbone: Text encoder backbone (bidirectional Mistral).
+            pooling: Latent attention pooling module.
+            output_dim: Output embedding dimension.
+        """
+        super().__init__()
+        self.backbone = backbone
+        self.pooling = pooling
+        self.output_dim = output_dim
+
+    def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+        """Forward pass for ONNX export.
+
+        Args:
+            input_ids: Token IDs [batch_size, seq_length].
+            attention_mask: Attention mask [batch_size, seq_length].
+
+        Returns:
+            L2-normalized embeddings [batch_size, output_dim].
+        """
+        hidden_states = self.backbone(input_ids=input_ids, attention_mask=attention_mask)
+        key_padding_mask = ~attention_mask.bool()
+        embeddings = self.pooling(hidden_states=hidden_states, attention_mask=key_padding_mask)
+        embeddings = embeddings[:, : self.output_dim]
+        norm = torch.clamp(torch.norm(embeddings, p=2, dim=-1, keepdim=True), min=1e-12)
+        embeddings = embeddings / norm
+        return embeddings
+
+
+class ONNXExporter:
+    """Handles ONNX export with LoRA merge, dynamic shapes, and validation."""
+
+    def __init__(
+        self,
+        model,
+        output_dir: str = "./onnx_export",
+        opset_version: int = 18,
+        output_dim: int = 4096,
+    ):
+        """Initialize exporter.
+
+        Args:
+            model: OmniVectorModel instance.
+            output_dir: Directory for exported ONNX files.
+            opset_version: ONNX opset version (18+ for native LayerNorm).
+            output_dim: Output embedding dimension.
+        """
+        self.model = model
+        self.output_dir = Path(output_dir)
+        self.opset_version = opset_version
+        self.output_dim = output_dim
+
+    def merge_lora(self):
+        """Merge LoRA adapters into base weights before export.
+
+        Collapses W + B*A into a single weight matrix, eliminating
+        conditional branching that would break ONNX graph.
+        """
+        if hasattr(self.model, "backbone") and hasattr(self.model.backbone, "merge_lora"):
+            self.model.backbone.merge_lora()
+            logger.info("LoRA adapters merged into base weights")
+        else:
+            logger.info("No LoRA adapters to merge")
+
+    def export(
+        self,
+        output_path: Optional[str] = None,
+        merge_lora: bool = True,
+        max_seq_length: int = 512,
+    ) -> str:
+        """Export model to ONNX format.
+
+        Args:
+            output_path: Custom output path (default: output_dir/omnivector_embed.onnx).
+            merge_lora: Whether to merge LoRA before export.
+            max_seq_length: Maximum sequence length for dummy input.
+
+        Returns:
+            Path to exported ONNX file.
+        """
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        if output_path is None:
+            output_path = str(self.output_dir / "omnivector_embed.onnx")
+
+        if merge_lora:
+            self.merge_lora()
+
+        wrapper = OmniVectorONNXWrapper(
+            backbone=self.model.backbone,
+            pooling=self.model.pooling,
+            output_dim=self.output_dim,
+        )
+        wrapper.eval()
+
+        device = next(self.model.parameters()).device
+        dummy_input_ids = torch.randint(0, 1000, (1, 32), device=device)
+        dummy_attention_mask = torch.ones(1, 32, dtype=torch.long, device=device)
+
+        dynamic_axes = {
+            "input_ids": {0: "batch_size", 1: "sequence_length"},
+            "attention_mask": {0: "batch_size", 1: "sequence_length"},
+            "embedding": {0: "batch_size"},
+        }
+
+        logger.info(f"Exporting ONNX model to {output_path} (opset {self.opset_version})")
+
+        with torch.no_grad():
+            torch.onnx.export(
+                wrapper,
+                (dummy_input_ids, dummy_attention_mask),
+                output_path,
+                opset_version=self.opset_version,
+                input_names=["input_ids", "attention_mask"],
+                output_names=["embedding"],
+                dynamic_axes=dynamic_axes,
+                do_constant_folding=True,
+            )
+
+        file_size_mb = os.path.getsize(output_path) / (1024 * 1024)
+        logger.info(f"ONNX export complete: {output_path} ({file_size_mb:.1f} MB)")
+
+        return output_path
+
+    def validate_onnx(self, onnx_path: str) -> bool:
+        """Run basic ONNX model validation.
+
+        Args:
+            onnx_path: Path to ONNX model file.
+
+        Returns:
+            True if model passes validation.
+        """
+        import onnx
+
+        model = onnx.load(onnx_path)
+        onnx.checker.check_model(model)
+        logger.info(f"ONNX model validation passed: {onnx_path}")
+        return True

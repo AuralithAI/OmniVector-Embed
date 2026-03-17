@@ -1,0 +1,83 @@
+# Multimodal Vision-Text Training Configuration
+#
+# Stage: Vision alignment (after Stage 1 text retrieval)
+# Duration: ~10k steps on 2x A100 80GB
+# Strategy: Freeze vision backbone, train projection + text backbone (LoRA)
+#           Unfreeze vision projection after warmup
+# Data: Image-text pairs (COCO, Flickr30k, CC3M) + text retrieval pairs
+
+training_args:
+  num_train_epochs: 1
+  per_device_train_batch_size: 8
+  per_device_eval_batch_size: 16
+  gradient_accumulation_steps: 4
+  learning_rate: 1.0e-5
+  warmup_steps: 500
+  max_steps: 10000
+  lr_scheduler_type: cosine
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  logging_steps: 50
+  save_steps: 1000
+  eval_steps: 500
+  save_total_limit: 3
+  fp16: true
+  dataloader_num_workers: 4
+  dataloader_pin_memory: true
+  remove_unused_columns: false
+  optim: adamw_torch
+
+model_config:
+  model_name: mistralai/Mistral-7B-v0.1
+  use_lora: true
+  lora_rank: 16
+  lora_alpha: 32
+  lora_dropout: 0.1
+  lora_targets:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+  embed_dim: 4096
+  mrl_dims: [512, 1024, 2048, 4096]
+  max_length: 512
+
+vision_config:
+  vision_model: SigLIP-SO400M
+  vision_dim: 1152
+  image_size: 384
+  freeze_vision_backbone: true
+  freeze_vision_steps: 1000
+  num_frames: 8
+
+training_config:
+  cross_modal_weight: 1.0
+  max_negatives: 7
+  temperature: 0.07
+  in_batch_negatives: true
+  # Vision encoder stays frozen except projection
+  # Text backbone LoRA adapters are always trainable
+  # After freeze_vision_steps, vision projection unfreezes
+
+data_config:
+  # Text retrieval data (continued from Stage 1)
+  text_ratio: 0.6
+  image_ratio: 0.3
+  video_ratio: 0.1
+  # Image-text sources
+  image_datasets:
+    - name: coco_captions
+      format: coco
+      weight: 1.0
+    - name: flickr30k
+      format: jsonl
+      weight: 0.5
+    - name: cc3m_subset
+      format: jsonl
+      weight: 1.0
+  # Video-text sources (optional, lower weight)
+  video_datasets:
+    - name: webvid_subset
+      format: jsonl
+      weight: 0.3
+      num_frames: 8

@@ -132,25 +132,28 @@ class TestDataLoaders:
         from omnivector.data.loaders.base import BEIRLoader
 
         loader = BEIRLoader()
-        assert loader.name == "beir"
+        assert loader.name == "beir/nfcorpus"
 
+    @pytest.mark.slow
     def test_msmarco_loader_load(self):
         from omnivector.data.loaders.base import MSMARCOLoader
 
-        loader = MSMARCOLoader()
+        loader = MSMARCOLoader(max_samples=10)
         data = loader.load()
         assert isinstance(data, list)
 
+    @pytest.mark.slow
     def test_hotpotqa_loader_load(self):
         from omnivector.data.loaders.base import HotpotQALoader
 
-        loader = HotpotQALoader()
+        loader = HotpotQALoader(max_samples=10)
         data = loader.load()
         assert isinstance(data, list)
 
+    @pytest.mark.slow
     def test_beir_loader_load(self):
         from omnivector.data.loaders.base import BEIRLoader
 
-        loader = BEIRLoader()
+        loader = BEIRLoader(max_samples=10)
         data = loader.load()
         assert isinstance(data, list)

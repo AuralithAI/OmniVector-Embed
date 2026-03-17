@@ -19,15 +19,17 @@ jobs:
       - name: Check if VERSION file changed
         id: check
         run: |
-          if git diff HEAD~1 HEAD --name-only | grep -q "^VERSION$"; then
-            NEW_VERSION=$(cat VERSION)
-            OLD_VERSION=$(git show HEAD~1:VERSION)
-            if [ "$NEW_VERSION" != "$OLD_VERSION" ]; then
-              echo "version-changed=true" >> $GITHUB_OUTPUT
-              echo "new-version=$NEW_VERSION" >> $GITHUB_OUTPUT
-            else
-              echo "version-changed=false" >> $GITHUB_OUTPUT
-            fi
+          set +e  # Don't exit on error
+          
+          # Try to get VERSION from previous commit
+          # If it doesn't exist (new file) or differs, mark as changed
+          OLD_VERSION=$(git show HEAD~1:VERSION 2>/dev/null)
+          NEW_VERSION=$(cat VERSION)
+          
+          # If old version doesn't exist or differs from new version, version changed
+          if [ -z "$OLD_VERSION" ] || [ "$NEW_VERSION" != "$OLD_VERSION" ]; then
+            echo "version-changed=true" >> $GITHUB_OUTPUT
+            echo "new-version=$NEW_VERSION" >> $GITHUB_OUTPUT
           else
             echo "version-changed=false" >> $GITHUB_OUTPUT
           fi
