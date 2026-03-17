@@ -1,8 +1,9 @@
-"""Multimodal trainer extending OmniVectorTrainer for vision-text training.
+"""Multimodal trainer extending OmniVectorTrainer for vision-text-audio training.
 
 Handles mixed-modality batches by routing image/video data through the
-vision encoder while text goes through the backbone, then computing
-both text-retrieval and cross-modal contrastive losses.
+vision encoder and audio through the Whisper encoder, while text goes
+through the backbone. Computes both text-retrieval and cross-modal
+contrastive losses across all modalities.
 """
 
 import logging
@@ -16,13 +17,14 @@ logger = logging.getLogger(__name__)
 
 
 class MultimodalTrainer(OmniVectorTrainer):
-    """Trainer for joint text + vision embedding training.
+    """Trainer for joint text + vision + audio embedding training.
 
     Extends OmniVectorTrainer with:
     - Image/video batch routing through vision encoder
+    - Audio batch routing through Whisper audio encoder
     - Cross-modal contrastive loss alongside text MRL loss
     - Gradient accumulation across modalities
-    - Vision encoder freeze/unfreeze scheduling
+    - Vision/audio encoder freeze/unfreeze scheduling
 
     Attributes:
         cross_modal_weight: Weight for cross-modal loss component.
@@ -79,6 +81,7 @@ class MultimodalTrainer(OmniVectorTrainer):
         # Check if this is a multimodal batch
         has_images = inputs.get("has_images", False)
         has_videos = inputs.get("has_videos", False)
+        has_audio = inputs.get("has_audio", False)
 
         # Route text through backbone
         query_input_ids = inputs["query_input_ids"]
@@ -160,6 +163,20 @@ class MultimodalTrainer(OmniVectorTrainer):
                     visual_mask = video_mask
                     text_for_visual = query_embeddings
 
+        # Audio embeddings
+        audio_embeddings = None
+        audio_mask = None
+        text_for_audio = None
+
+        if has_audio and model.audio_encoder is not None:
+            audio_feats = inputs.get("audio_features")
+            a_mask = inputs.get("audio_mask")
+
+            if audio_feats is not None:
+                audio_embeddings = model.audio_encoder(audio_feats)
+                audio_mask = a_mask
+                text_for_audio = query_embeddings
+
         # Compute loss
         if self.multimodal_loss_fn is not None:
             result = self.multimodal_loss_fn(
@@ -169,6 +186,9 @@ class MultimodalTrainer(OmniVectorTrainer):
                 visual_embeddings=visual_embeddings,
                 text_for_visual=text_for_visual,
                 visual_mask=visual_mask,
+                audio_embeddings=audio_embeddings,
+                text_for_audio=text_for_audio,
+                audio_mask=audio_mask,
             )
         else:
             # Fallback to parent text-only behavior
@@ -189,10 +209,10 @@ class MultimodalTrainer(OmniVectorTrainer):
         return (loss, outputs) if return_outputs else loss
 
     def _handle_vision_freeze(self, model):
-        """Freeze/unfreeze vision encoder based on training step.
+        """Freeze/unfreeze vision and audio encoders based on training step.
 
-        Keeps vision encoder frozen for the first N steps to let text
-        backbone warm up before cross-modal alignment begins.
+        Keeps encoders frozen for the first N steps to let text backbone
+        warm up before cross-modal alignment begins.
 
         Args:
             model: OmniVectorModel instance.
@@ -204,19 +224,35 @@ class MultimodalTrainer(OmniVectorTrainer):
             if model.vision_encoder is not None:
                 for param in model.vision_encoder.parameters():
                     param.requires_grad = False
-                self._vision_frozen = True
                 logger.info(f"Step {current_step}: Vision encoder frozen")
+
+            # Freeze audio encoder projection
+            if model.audio_encoder is not None:
+                for param in model.audio_encoder.projection.parameters():
+                    param.requires_grad = False
+                logger.info(f"Step {current_step}: Audio encoder projection frozen")
+
+            self._vision_frozen = True
 
         elif current_step >= self.freeze_vision_steps and self._vision_frozen:
             # Unfreeze vision encoder (only projection layer)
             if model.vision_encoder is not None:
                 for param in model.vision_encoder.projection.parameters():
                     param.requires_grad = True
-                self._vision_frozen = False
                 logger.info(
                     f"Step {current_step}: Vision encoder projection unfrozen "
                     f"(base vision model stays frozen)"
                 )
+
+            # Unfreeze audio encoder projection
+            if model.audio_encoder is not None:
+                for param in model.audio_encoder.projection.parameters():
+                    param.requires_grad = True
+                logger.info(
+                    f"Step {current_step}: Audio encoder projection unfrozen"
+                )
+
+            self._vision_frozen = False
 
     def log_modality_stats(self, batch: dict):
         """Log modality distribution in current batch.
