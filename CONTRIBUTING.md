@@ -19,7 +19,7 @@ Be respectful, inclusive, and professional in all interactions.
 ### Before you start:
 - Check existing issues/PRs to avoid duplicates
 - Open an issue for large changes to discuss first
-- Follow the 8-week milestones in README.md
+- Review the architecture docs in `docs/architecture.md`
 
 ### Branch naming:
 - Feature: `feature/short-description`
@@ -125,6 +125,8 @@ except FileNotFoundError as e:
 - Aim for 80%+ coverage
 - Test happy path and error cases
 - Use descriptive test names
+- See **[docs/testing.md](docs/testing.md)** for the full testing guide
+  (markers, multi-GPU, fixtures, CI)
 
 ```python
 def test_encode_text_with_valid_input(self):
@@ -221,18 +223,19 @@ See `docs/implementation-plan.md` for full architecture.
 - Add logging at key decision points
 - Document non-obvious design choices
 
-## Milestones & Roadmap
+## Roadmap
 
-See README.md for 8-week milestones. Each week has specific deliverables:
+Development is tracked via GitHub Issues and Milestones. See the
+[README](README.md) for current feature status and the
+[architecture guide](docs/architecture.md) for design context.
 
-- **Week 1**: Repo skeleton + unit tests
-- **Week 2**: Data pipeline + hard negative mining
-- **Week 3**: Training infrastructure + CPU dry run
-- **Week 4**: ONNX export + quantization
-- **Week 5**: Vision encoder + multimodal
-- **Week 6**: Stage 1 training (GPU)
-- **Week 7**: Stage 2 + full evaluation
-- **Week 8**: Polish + release
+Priority areas for contributions:
+
+- **Evaluation**: Additional MTEB task coverage and regression dashboards
+- **Data loaders**: New retrieval/NLI dataset integrations
+- **Multimodal**: Video temporal encoding improvements, audio augmentation
+- **Deployment**: TensorRT, CoreML, and WASM export targets
+- **Documentation**: Tutorials, API reference, deployment guides
 
 ## Getting Help
 
@@ -250,7 +253,7 @@ Contributors will be:
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing, you agree that your contributions will be licensed under the Apache 2.0 License.
 
 ---
 

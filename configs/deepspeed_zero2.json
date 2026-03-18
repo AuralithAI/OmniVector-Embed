@@ -44,14 +44,12 @@
   },
   "gradient_clipping": 1.0,
   "fp16": {
-    "enabled": true,
-    "loss_scale": 0,
-    "loss_scale_window": 1000,
-    "initial_scale_power": 15,
-    "hysteresis": 2,
-    "min_loss_scale": 1
+    "enabled": false
   },
-  "communication_data_type": "fp16",
+  "bf16": {
+    "enabled": true
+  },
+  "communication_data_type": "bf16",
   "prescale_gradients": true,
   "wall_clock_breakdown": false,
   "steps_per_print": 10,

@@ -178,3 +178,50 @@ class TestDataLoaders:
         assert ("Title A", 0) in supporting_facts_ids
         assert ("Title B", 1) in supporting_facts_ids
         assert len(supporting_facts_ids) == 2
+
+    def test_beir_load_titleless_corpus_uses_first_sentence(self):
+        """Test BEIR loader extracts first sentence as pseudo-query for title-less entries."""
+        from unittest.mock import patch, MagicMock
+        from omnivector.data.loaders.base import BEIRLoader
+
+        mock_rows = [
+            {"_id": "1", "title": "", "text": "First sentence here. Rest of the passage follows.", "metadata": ""},
+            {"_id": "2", "title": "", "text": "Another opening? Yes indeed more content.", "metadata": ""},
+            {"_id": "3", "title": "", "text": "", "metadata": ""},
+            {"_id": "4", "title": "Real Title", "text": "Passage body.", "metadata": ""},
+        ]
+
+        mock_ds = MagicMock()
+        mock_ds.__iter__ = MagicMock(return_value=iter(mock_rows))
+        mock_ds.take = MagicMock(return_value=mock_ds)
+
+        loader = BEIRLoader(benchmark="fiqa", use_instruction_prefix=False)
+        with patch.object(loader, "_load_corpus_dataset", return_value=mock_ds):
+            pairs = loader.load()
+
+        assert len(pairs) == 3
+
+        assert pairs[0].query == "First sentence here."
+        assert pairs[0].positive == "First sentence here. Rest of the passage follows."
+
+        assert pairs[1].query == "Another opening?"
+
+        assert pairs[2].query == "Real Title"
+
+    def test_beir_load_titleless_no_sentence_boundary(self):
+        """Test BEIR loader falls back to first 128 chars when no sentence boundary."""
+        from unittest.mock import patch, MagicMock
+        from omnivector.data.loaders.base import BEIRLoader
+
+        long_text = "A" * 200
+        mock_rows = [{"_id": "1", "title": "", "text": long_text, "metadata": ""}]
+        mock_ds = MagicMock()
+        mock_ds.__iter__ = MagicMock(return_value=iter(mock_rows))
+        mock_ds.take = MagicMock(return_value=mock_ds)
+
+        loader = BEIRLoader(benchmark="fiqa", use_instruction_prefix=False)
+        with patch.object(loader, "_load_corpus_dataset", return_value=mock_ds):
+            pairs = loader.load()
+
+        assert len(pairs) == 1
+        assert pairs[0].query == "A" * 128

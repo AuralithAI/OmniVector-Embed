@@ -76,8 +76,46 @@ class TestTrainingDryRun:
         torch.cuda.is_available() is False, reason="Requires GPU for practical training"
     )
     def test_10_step_training(self):
-        """Test 10-step training with loss decreasing."""
-        pytest.skip("Full training implementation in Week 3")
+        """Test 10-step training with loss decreasing over 10 steps.
+
+        Verifies that the training loop produces monotonically-ish
+        decreasing loss on a tiny synthetic dataset, confirming that
+        gradients flow end-to-end.
+        """
+        from omnivector.training.losses import MRLInfoNCELoss
+
+        hidden_dim = 256
+        model = SimpleModel(hidden_dim=hidden_dim).cuda()
+        loss_fn = MRLInfoNCELoss(dimensions=[hidden_dim])
+        optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+
+        losses: list[float] = []
+        for step in range(10):
+            # Synthetic batch: 8 query-positive pairs
+            input_ids = torch.randint(0, 1000, (8, 32), device="cuda")
+            attention_mask = torch.ones(8, 32, dtype=torch.long, device="cuda")
+
+            # Forward: encode queries and positives (same model, different noise)
+            hidden_q = model.backbone(input_ids, attention_mask)
+            emb_q = model.pooling(hidden_q, attention_mask=~attention_mask.bool())
+
+            # Positive = same input + slight noise on embeddings
+            hidden_p = model.backbone(input_ids, attention_mask)
+            emb_p = model.pooling(hidden_p, attention_mask=~attention_mask.bool())
+
+            # Compute loss
+            loss = loss_fn(emb_q, emb_p)
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+
+            losses.append(loss.item())
+            logger.info(f"Step {step}: loss={loss.item():.4f}")
+
+        # Loss at end should be lower than at start (allow some noise)
+        assert losses[-1] < losses[0], (
+            f"Loss did not decrease: start={losses[0]:.4f}, end={losses[-1]:.4f}"
+        )
 
     @pytest.mark.integration
     def test_data_loading(self):

@@ -280,7 +280,12 @@ class BEIRLoader(BaseDataLoader):
         return load_dataset("json", data_files=url, split="train")
 
     def load(self) -> list[EmbeddingPair]:
-        """Load BEIR dataset pairs (title → text from corpus)."""
+        """Load BEIR dataset pairs from corpus.
+
+        Uses ``title → text`` when a title is available.  For title-less
+        corpora (e.g. FiQA) the first sentence of the text is extracted as
+        a pseudo-query and the full text serves as the positive passage.
+        """
         dataset = self._load_corpus_dataset()
 
         if self.max_samples:
@@ -288,11 +293,25 @@ class BEIRLoader(BaseDataLoader):
 
         pairs = []
         for sample in dataset:
-            query = sample.get("title", "")
-            passage = sample.get("text", "")
+            title = (sample.get("title", "") or "").strip()
+            passage = (sample.get("text", "") or "").strip()
 
-            if not query or not passage:
+            if not passage:
                 continue
+
+            if title:
+                query = title
+            else:
+                for sep in (". ", ".\n", "? ", "!\n"):
+                    idx = passage.find(sep)
+                    if idx != -1:
+                        query = passage[: idx + 1].strip()
+                        break
+                else:
+                    query = passage[:128].strip()
+
+                if not query:
+                    continue
 
             if self.use_instruction_prefix:
                 query = f"Instruct: Find relevant document.\nQuery: {query}"
