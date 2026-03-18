@@ -42,7 +42,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--opset-version",
         type=int,
-        default=18,
+        default=17,
         help="ONNX opset version.",
     )
     parser.add_argument(

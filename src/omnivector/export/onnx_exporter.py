@@ -1,7 +1,7 @@
 """ONNX export utilities for OmniVector model.
 
 Provides wrapper and exporter for converting PyTorch model to ONNX format
-with opset 18, dynamic shapes, and LoRA merge support.
+with opset 17, dynamic shapes, and LoRA merge support.
 """
 
 import logging
@@ -62,7 +62,7 @@ class ONNXExporter:
         self,
         model,
         output_dir: str = "./onnx_export",
-        opset_version: int = 18,
+        opset_version: int = 17,
         output_dim: int = 4096,
     ):
         """Initialize exporter.
@@ -70,7 +70,7 @@ class ONNXExporter:
         Args:
             model: OmniVectorModel instance.
             output_dir: Directory for exported ONNX files.
-            opset_version: ONNX opset version (18+ for native LayerNorm).
+            opset_version: ONNX opset version (17 for native LayerNorm support).
             output_dim: Output embedding dimension.
         """
         self.model = model

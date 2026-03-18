@@ -1,10 +1,12 @@
 """Audio encoder using Whisper for multimodal embeddings.
 
 Encodes audio spectrograms to 4096-dim embeddings aligned with
-text/image/video embeddings. Uses Whisper-tiny encoder as the base
-audio model with a learned projection to the target dimension.
+text/image/video embeddings. Uses Whisper-tiny encoder (384-dim hidden)
+as the base audio model with a learned 2-layer MLP projection
+(384 → 2240 → 4096) to the target dimension.
 """
 
+import contextlib
 import logging
 from typing import Optional
 
@@ -18,17 +20,18 @@ class WhisperAudioEncoder(nn.Module):
     """Whisper-based audio encoder for audio embeddings.
 
     Architecture:
-        - Base: Whisper-tiny encoder (512-dim output)
-        - Projection: MLP (512 → 2048 → 4096) with LayerNorm + GELU
-        - Mean-pool over encoder hidden states before projection
+        - Base: Whisper-tiny encoder (384-dim hidden states)
+        - Projection: 2-layer MLP (384 → 2240 → 4096) with LayerNorm + GELU
+        - Mean-pool over encoder time steps before projection
 
-    The two-layer MLP with non-linearity bridges the larger dimension gap
-    (512 → 4096 = 8x) compared to SigLIP (1152 → 4096 ≈ 3.5x), providing
-    sufficient capacity for the projection.
+    The two-layer MLP with non-linearity bridges the dimension gap
+    (384 → 4096 ≈ 10.7×) with a mid-dimension of (384 + 4096) // 2 = 2240,
+    providing sufficient capacity for the cross-modal projection.
 
     Attributes:
         model_name: Whisper model identifier.
         embed_dim: Target embedding dimension.
+        encoder_dim: Whisper encoder hidden size (e.g. 384 for tiny).
         whisper_encoder: Base Whisper encoder model.
         projection: MLP projection to target dimension.
     """
@@ -140,7 +143,8 @@ class WhisperAudioEncoder(nn.Module):
             )
 
         # Whisper encoder expects [batch, n_mels, seq_len]
-        with torch.no_grad() if self._freeze_encoder else _null_context():
+        ctx = torch.no_grad() if self._freeze_encoder else contextlib.nullcontext()
+        with ctx:
             encoder_output = self.whisper_encoder(audio_features)
             hidden_states = encoder_output.last_hidden_state  # [B, T, encoder_dim]
 
@@ -203,13 +207,3 @@ class WhisperAudioEncoder(nn.Module):
     def total_parameters(self) -> int:
         """Count total parameters."""
         return sum(p.numel() for p in self.parameters())
-
-
-class _null_context:
-    """No-op context manager for conditional torch.no_grad()."""
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        pass

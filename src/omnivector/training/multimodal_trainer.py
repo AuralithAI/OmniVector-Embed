@@ -129,6 +129,11 @@ class MultimodalTrainer(OmniVectorTrainer):
             )
             negative_embeddings = neg_emb.reshape(batch_size, num_negs, -1)
 
+        # Determine target dtype from text embeddings for mixed-precision
+        # consistency.  SigLIP / Whisper output fp32 by default, but the
+        # text backbone may be running in bf16/fp16 under DeepSpeed.
+        target_dtype = query_embeddings.dtype
+
         # Vision embeddings
         visual_embeddings = None
         visual_mask = None
@@ -139,7 +144,7 @@ class MultimodalTrainer(OmniVectorTrainer):
             image_mask = inputs.get("image_mask")
 
             if images is not None:
-                visual_embeddings = model.vision_encoder(images)
+                visual_embeddings = model.vision_encoder(images).to(dtype=target_dtype)
                 visual_mask = image_mask
                 text_for_visual = query_embeddings
 
@@ -148,7 +153,7 @@ class MultimodalTrainer(OmniVectorTrainer):
             video_mask = inputs.get("video_mask")
 
             if videos is not None:
-                video_emb = model.video_encoder(videos)
+                video_emb = model.video_encoder(videos).to(dtype=target_dtype)
 
                 if visual_embeddings is not None:
                     # Combine image and video embeddings
@@ -173,7 +178,7 @@ class MultimodalTrainer(OmniVectorTrainer):
             a_mask = inputs.get("audio_mask")
 
             if audio_feats is not None:
-                audio_embeddings = model.audio_encoder(audio_feats)
+                audio_embeddings = model.audio_encoder(audio_feats).to(dtype=target_dtype)
                 audio_mask = a_mask
                 text_for_audio = query_embeddings
 

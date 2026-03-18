@@ -27,7 +27,11 @@ class SimpleBackbone(nn.Module):
 
     def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor = None) -> torch.Tensor:
         hidden = self.embedding(input_ids)
-        return self.linear(hidden)
+        hidden = self.linear(hidden)
+        # Use attention_mask so ONNX export retains it as a graph input
+        if attention_mask is not None:
+            hidden = hidden * attention_mask.unsqueeze(-1).float()
+        return hidden
 
     def merge_lora(self):
         self._lora_merged = True
@@ -41,8 +45,13 @@ class SimplePooling(nn.Module):
         self.linear = nn.Linear(hidden_dim, hidden_dim)
 
     def forward(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor = None) -> torch.Tensor:
-        pooled = hidden_states.mean(dim=1, keepdim=True)
-        return self.linear(pooled).squeeze(1)
+        # Use attention_mask for masked mean pooling so ONNX export retains it
+        if attention_mask is not None:
+            mask_f = (~attention_mask).unsqueeze(-1).float()
+            pooled = (hidden_states * mask_f).sum(dim=1) / mask_f.sum(dim=1).clamp(min=1e-9)
+        else:
+            pooled = hidden_states.mean(dim=1)
+        return self.linear(pooled)
 
 
 class SimpleModel(nn.Module):
@@ -112,7 +121,7 @@ class TestONNXParity:
             exporter = ONNXExporter(
                 model=model,
                 output_dir=tmpdir,
-                opset_version=18,
+                opset_version=17,
                 output_dim=256,
             )
             onnx_path = exporter.export(merge_lora=False)
@@ -137,7 +146,7 @@ class TestONNXParity:
             exporter = ONNXExporter(
                 model=model,
                 output_dir=tmpdir,
-                opset_version=18,
+                opset_version=17,
                 output_dim=256,
             )
             onnx_path = exporter.export(merge_lora=False)
@@ -211,7 +220,7 @@ class TestONNXParity:
             exporter = ONNXExporter(
                 model=model,
                 output_dir=tmpdir,
-                opset_version=18,
+                opset_version=17,
                 output_dim=256,
             )
             fp32_path = exporter.export(merge_lora=False)

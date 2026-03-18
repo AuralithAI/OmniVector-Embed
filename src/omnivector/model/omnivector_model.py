@@ -303,35 +303,99 @@ class OmniVectorModel(nn.Module):
         return text_embeddings
 
     @classmethod
-    def from_pretrained(cls, model_name_or_path: str, **kwargs) -> "OmniVectorModel":
+    def from_pretrained(
+        cls,
+        model_name_or_path: str,
+        lora: bool = False,
+        device: str = "cpu",
+        **kwargs,
+    ) -> "OmniVectorModel":
         """
-        Load pre-trained OmniVector model.
+        Load a pre-trained OmniVector model from a local checkpoint or construct
+        a fresh model from Mistral-7B weights.
+
+        If *model_name_or_path* contains a ``model.pt`` state-dict saved by
+        :meth:`save_pretrained`, the weights are loaded on top of the newly
+        constructed model.  Otherwise the Mistral-7B backbone is loaded from
+        the HuggingFace Hub and all other components are randomly initialised
+        (suitable for starting Stage-1 training).
 
         Args:
-            model_name_or_path: HuggingFace model ID or local path
-            **kwargs: Additional arguments:
-                - audio_encoder (str): Whisper model name for audio encoder
-                  (e.g., 'whisper-tiny'). If None, no audio encoder.
+            model_name_or_path: Local directory (with ``model.pt``) or HF model ID
+                for the Mistral backbone.
+            lora: Whether to apply LoRA adapters on the backbone.
+            device: Target device (``'cpu'``, ``'cuda'``, ``'cuda:0'``, …).
+            **kwargs: Extra options forwarded to component constructors:
+                - ``audio_encoder`` (str): Whisper variant name, e.g. ``'whisper-tiny'``.
+                  If *None*, no audio encoder is created.
+                - ``vision_encoder`` (bool): Whether to create the SigLIP vision encoder.
+                  Defaults to *True*.
+                - ``freeze_vision_backbone`` (bool): Freeze vision backbone (default True).
 
         Returns:
-            OmniVectorModel instance
-        """
-        # Initialize components
-        backbone = MistralEmbeddingBackbone(model_name="mistralai/Mistral-7B-v0.1")
-        pooling = LatentAttentionPooling()
-        vision_encoder = SigLIPVisionEncoder()
+            Fully initialised OmniVectorModel on *device*.
 
+        Raises:
+            FileNotFoundError: If *model_name_or_path* looks like a local path
+                but does not exist.
+        """
+        import os
+
+        local_checkpoint = None
+        backbone_name = "mistralai/Mistral-7B-v0.1"
+
+        # Detect whether path points to a saved checkpoint directory
+        if os.path.isdir(model_name_or_path):
+            candidate = os.path.join(model_name_or_path, "model.pt")
+            if os.path.isfile(candidate):
+                local_checkpoint = candidate
+                logger.info(f"Found local checkpoint: {candidate}")
+            else:
+                logger.info(
+                    f"Directory {model_name_or_path} has no model.pt — "
+                    f"will construct a fresh model."
+                )
+
+        # Build backbone
+        backbone = MistralEmbeddingBackbone(
+            model_name=backbone_name,
+            use_lora=lora,
+        )
+
+        # Build pooling
+        pooling = LatentAttentionPooling()
+
+        # Build optional vision encoder
+        vision_encoder = None
+        if kwargs.pop("vision_encoder", True):
+            freeze_vision = kwargs.pop("freeze_vision_backbone", True)
+            vision_encoder = SigLIPVisionEncoder(freeze_backbone=freeze_vision)
+
+        # Build optional audio encoder
         audio_model_name = kwargs.pop("audio_encoder", None)
         audio_encoder = None
         if audio_model_name:
             audio_encoder = WhisperAudioEncoder(model_name=audio_model_name)
 
         model = cls(
-            backbone, pooling, vision_encoder,
+            backbone=backbone,
+            pooling=pooling,
+            vision_encoder=vision_encoder,
             audio_encoder=audio_encoder,
         )
-        # Load weights from pretrained if available
-        logger.info(f"Loaded OmniVectorModel from {model_name_or_path}")
+
+        # Load saved weights if available
+        if local_checkpoint is not None:
+            state_dict = torch.load(local_checkpoint, map_location=device)
+            model.load_state_dict(state_dict, strict=False)
+            logger.info(f"Loaded weights from {local_checkpoint}")
+
+        model = model.to(device)
+        logger.info(
+            f"OmniVectorModel ready on {device} "
+            f"(lora={lora}, vision={'yes' if vision_encoder else 'no'}, "
+            f"audio={'yes' if audio_encoder else 'no'})"
+        )
         return model
 
     def save_pretrained(self, save_directory: str) -> None:

@@ -782,16 +782,57 @@ def build_stage_dataset(
         save_dataset(custom_pairs, output_dir, "custom_pairs.jsonl")
         logger.info(f"Added {len(custom_pairs)} custom pairs")
 
-    # Upsample to target size if needed (with replacement for scaling)
+    # Domain-balanced upsampling to target size
     if target_size and len(all_records) < target_size:
+        ratio = target_size / len(all_records)
         logger.info(
             f"Upsampling from {len(all_records)} to {target_size} "
-            f"({target_size / len(all_records):.1f}x)"
+            f"({ratio:.1f}x) using domain-balanced sampling"
         )
+        if ratio > 10:
+            logger.warning(
+                f"Upsample ratio {ratio:.1f}x is very high — consider "
+                f"adding more unique data sources or synthetic pairs to "
+                f"reduce overfitting risk."
+            )
         rng = np.random.default_rng(42)
+
+        # Group records by domain for balanced sampling
+        domain_indices: dict[str, list[int]] = {}
+        for i, rec in enumerate(all_records):
+            dom = rec.get("domain", "unknown")
+            domain_indices.setdefault(dom, []).append(i)
+
         extra_needed = target_size - len(all_records)
-        extra_indices = rng.choice(len(all_records), size=extra_needed, replace=True)
-        all_records.extend([all_records[i] for i in extra_indices])
+        n_domains = len(domain_indices)
+        base_per_domain = extra_needed // n_domains
+
+        extra_records: list[dict] = []
+        for dom, indices in domain_indices.items():
+            # Give each domain a proportional share, capped at 5x its
+            # original size to prevent any single domain from dominating
+            domain_quota = min(base_per_domain, len(indices) * 5)
+            if domain_quota == 0:
+                continue
+            sampled = rng.choice(indices, size=domain_quota, replace=True)
+            extra_records.extend([all_records[i] for i in sampled])
+
+        # Fill the remainder from underrepresented domains
+        still_needed = extra_needed - len(extra_records)
+        if still_needed > 0:
+            # Weight towards smaller domains to improve balance
+            domain_weights = np.array([
+                1.0 / max(len(idxs), 1) for idxs in domain_indices.values()
+            ])
+            domain_weights /= domain_weights.sum()
+            domain_names = list(domain_indices.keys())
+
+            for _ in range(still_needed):
+                chosen_dom = rng.choice(domain_names, p=domain_weights)
+                chosen_idx = rng.choice(domain_indices[chosen_dom])
+                extra_records.append(all_records[chosen_idx])
+
+        all_records.extend(extra_records)
 
     # Subsample to target size if needed
     if target_size and len(all_records) > target_size:

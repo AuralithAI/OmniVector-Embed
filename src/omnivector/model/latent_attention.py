@@ -2,8 +2,9 @@
 Latent attention pooling layer with ONNX-compatible attention implementation.
 
 This module implements:
-1. EagerMultiheadAttention: Standard multihead attention using explicit matmuls
-2. LatentAttentionPooling: Learns n_latents latent vectors that aggregate context
+1. EagerMultiheadAttention: Multihead attention using explicit matmuls (self-attention)
+2. EagerCrossAttention: Cross-attention with separate Q / KV projections
+3. LatentAttentionPooling: Learns n_latents latent vectors that aggregate context
 
 Critical: Do NOT use nn.MultiheadAttention because PyTorch 2.x routes it through
 SDPA internally, which breaks ONNX export. Use explicit matmul-based implementation.
@@ -21,20 +22,19 @@ logger = logging.getLogger(__name__)
 
 class EagerMultiheadAttention(nn.Module):
     """
-    Standard multihead attention using explicit matmuls (ONNX-safe).
+    Self-attention using explicit matmuls (ONNX-safe).
 
-    Unlike nn.MultiheadAttention which routes through SDPA in PyTorch 2.x,
-    this implementation uses explicit operations that map cleanly to ONNX:
-    - MatMul for Q @ K^T
-    - Softmax for normalization
-    - MatMul for attention weights @ V
+    Uses a unified in_proj for Q, K, V — suitable for **self-attention**
+    where query, key, and value come from the same source.
+
+    For cross-attention (query ≠ key/value), use ``EagerCrossAttention``.
 
     Attributes:
         embed_dim: Input/output dimension
         num_heads: Number of attention heads
         head_dim: Dimension per head
         scale: Scaling factor (1/sqrt(d_k))
-        in_proj: Linear layer for Q, K, V projection
+        in_proj: Linear layer for Q, K, V projection (unified)
         out_proj: Linear layer for output projection
     """
 
@@ -46,7 +46,7 @@ class EagerMultiheadAttention(nn.Module):
         bias: bool = True,
     ) -> None:
         """
-        Initialize EagerMultiheadAttention.
+        Initialize EagerMultiheadAttention (self-attention).
 
         Args:
             embed_dim: Total embedding dimension
@@ -84,34 +84,37 @@ class EagerMultiheadAttention(nn.Module):
         attn_mask: Optional[torch.Tensor] = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
-        Forward pass of multihead attention.
+        Forward pass of self-attention.
+
+        Note: ``key`` and ``value`` are ignored — all three projections
+        are derived from ``query`` via the unified ``in_proj``.  This is
+        intentional for self-attention.  Use ``EagerCrossAttention`` when
+        the key/value source differs from the query.
 
         Args:
-            query: Query tensor [...)[ L, E] or [L, N, E] where N=num_heads
-            key: Key tensor [L_kv, E]
-            value: Value tensor [L_kv, E]
-            key_padding_mask: Boolean mask [batch, L_kv], True for padding
-            attn_mask: Additive attention mask [L, L_kv]
+            query: Input tensor [batch, L, E]
+            key: Ignored (kept for API compat with cross-attention swap)
+            value: Ignored
+            key_padding_mask: Boolean mask [batch, L], True for padding
+            attn_mask: Additive attention mask [L, L]
 
         Returns:
-            Tuple of (output, attention_weights)
-            - output: [L, E]
-            - attention_weights: [L, L_kv] (averaged over heads)
+            Tuple of (output [batch, L, E], attn_weights [batch, L, L])
         """
         batch_size, tgt_len, embed_dim = query.shape
 
-        # Project Q, K, V
+        # Project Q, K, V from the **same** source (self-attention)
         qkv = self.in_proj(query)  # [batch, tgt_len, 3*embed_dim]
         q, k, v = qkv.chunk(3, dim=-1)  # Each [batch, tgt_len, embed_dim]
 
-        # Reshape for multihead: [batch, seq_len, embed_dim] -> [batch, seq_len, num_heads, head_dim]
+        # Reshape for multihead
         q = q.reshape(batch_size, tgt_len, self.num_heads, self.head_dim).transpose(1, 2)
-        k = k.reshape(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
-        v = v.reshape(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
-        # Now: [batch, num_heads, seq_len, head_dim]
+        k = k.reshape(batch_size, tgt_len, self.num_heads, self.head_dim).transpose(1, 2)
+        v = v.reshape(batch_size, tgt_len, self.num_heads, self.head_dim).transpose(1, 2)
+        # Now: [batch, num_heads, tgt_len, head_dim]
 
         # Compute attention scores: Q @ K^T / sqrt(d_k)
-        scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale  # [batch, num_heads, L, L_kv]
+        scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
 
         # Apply attention mask (additive)
         if attn_mask is not None:
@@ -119,21 +122,19 @@ class EagerMultiheadAttention(nn.Module):
                 attn_mask = attn_mask.unsqueeze(0).unsqueeze(0)
             scores = scores + attn_mask
 
-        # Apply key padding mask (e.g., for variable-length sequences)
+        # Apply key padding mask
         if key_padding_mask is not None:
-            # key_padding_mask: [batch, L_kv], True for positions to ignore
             scores = scores.masked_fill(
                 key_padding_mask[:, None, None, :],
                 float("-inf"),
             )
 
-        # Softmax over source dimension
+        # Softmax + NaN guard for fully-masked rows
         attn_weights = torch.softmax(scores, dim=-1)
         attn_weights = torch.where(
             torch.isnan(attn_weights), torch.zeros_like(attn_weights), attn_weights
         )
 
-        # Apply dropout
         attn_weights = self.dropout(attn_weights)
 
         # Apply attention to values
@@ -142,13 +143,145 @@ class EagerMultiheadAttention(nn.Module):
         # Concatenate heads
         attn_output = attn_output.transpose(1, 2).reshape(
             batch_size, tgt_len, embed_dim
-        )  # [batch, L, embed_dim]
+        )
 
-        # Output projection
         output = self.out_proj(attn_output)
+        attn_weights_avg = attn_weights.mean(dim=1)  # [batch, L, L]
 
-        # Average attention weights over heads for return value
-        attn_weights_avg = attn_weights.mean(dim=1)  # [batch, L, L_kv]
+        return output, attn_weights_avg
+
+
+class EagerCrossAttention(nn.Module):
+    """
+    Cross-attention with **separate** Q and KV projections (ONNX-safe).
+
+    Query comes from one source (e.g. latent vectors) while key/value
+    come from another (e.g. encoder hidden states).  Using separate
+    projections is critical — a shared ``in_proj`` would project key/value
+    from the query source, producing incorrect cross-attention.
+
+    All operations use explicit matmuls so the graph exports cleanly to
+    ONNX opset ≥ 18.
+
+    Attributes:
+        embed_dim: Input/output dimension
+        num_heads: Number of attention heads
+        head_dim: Dimension per head
+        scale: Scaling factor (1/sqrt(d_k))
+        q_proj: Linear projection for queries
+        k_proj: Linear projection for keys
+        v_proj: Linear projection for values
+        out_proj: Linear projection for output
+    """
+
+    def __init__(
+        self,
+        embed_dim: int,
+        num_heads: int,
+        dropout: float = 0.0,
+        bias: bool = True,
+    ) -> None:
+        """
+        Initialize EagerCrossAttention.
+
+        Args:
+            embed_dim: Total embedding dimension
+            num_heads: Number of attention heads
+            dropout: Dropout probability after softmax
+            bias: Whether to include bias in projections
+
+        Raises:
+            ValueError: If embed_dim not divisible by num_heads
+        """
+        super().__init__()
+
+        if embed_dim % num_heads != 0:
+            raise ValueError(
+                f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})"
+            )
+
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads
+        self.scale = 1.0 / math.sqrt(self.head_dim)
+        self.dropout_p = dropout
+
+        # Separate projections for cross-attention
+        self.q_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+        self.k_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+        self.v_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        key_padding_mask: Optional[torch.Tensor] = None,
+        attn_mask: Optional[torch.Tensor] = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Forward pass of cross-attention.
+
+        Args:
+            query: Query tensor [batch, L_q, E] (e.g. latent vectors)
+            key:   Key tensor   [batch, L_kv, E] (e.g. encoder hidden states)
+            value: Value tensor [batch, L_kv, E] (same source as key)
+            key_padding_mask: Boolean mask [batch, L_kv], True = ignore
+            attn_mask: Additive attention mask [L_q, L_kv]
+
+        Returns:
+            Tuple of (output [batch, L_q, E], attn_weights [batch, L_q, L_kv])
+        """
+        batch_size, tgt_len, _ = query.shape
+        src_len = key.size(1)
+
+        # Separate projections from different sources
+        q = self.q_proj(query)   # [batch, L_q, E]   — from latents
+        k = self.k_proj(key)     # [batch, L_kv, E]  — from encoder
+        v = self.v_proj(value)   # [batch, L_kv, E]  — from encoder
+
+        # Reshape for multihead
+        q = q.reshape(batch_size, tgt_len, self.num_heads, self.head_dim).transpose(1, 2)
+        k = k.reshape(batch_size, src_len, self.num_heads, self.head_dim).transpose(1, 2)
+        v = v.reshape(batch_size, src_len, self.num_heads, self.head_dim).transpose(1, 2)
+        # [batch, num_heads, seq_len, head_dim]
+
+        # Q @ K^T / sqrt(d_k)
+        scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+
+        # Additive attention mask
+        if attn_mask is not None:
+            if attn_mask.dim() == 2:
+                attn_mask = attn_mask.unsqueeze(0).unsqueeze(0)
+            scores = scores + attn_mask
+
+        # Key padding mask
+        if key_padding_mask is not None:
+            scores = scores.masked_fill(
+                key_padding_mask[:, None, None, :],
+                float("-inf"),
+            )
+
+        # Softmax + NaN guard
+        attn_weights = torch.softmax(scores, dim=-1)
+        attn_weights = torch.where(
+            torch.isnan(attn_weights), torch.zeros_like(attn_weights), attn_weights
+        )
+
+        attn_weights = self.dropout(attn_weights)
+
+        # Attention-weighted values
+        attn_output = torch.matmul(attn_weights, v)
+
+        # Concatenate heads
+        attn_output = attn_output.transpose(1, 2).reshape(
+            batch_size, tgt_len, self.embed_dim
+        )
+
+        output = self.out_proj(attn_output)
+        attn_weights_avg = attn_weights.mean(dim=1)
 
         return output, attn_weights_avg
 
@@ -204,8 +337,10 @@ class LatentAttentionPooling(nn.Module):
         # Learnable latents
         self.latents = nn.Parameter(torch.randn(n_latents, embed_dim) / math.sqrt(embed_dim))
 
-        # Cross-attention: latents attend to input
-        self.cross_attn = EagerMultiheadAttention(
+        # Cross-attention: latents (query) attend to encoder hidden states (key/value).
+        # Must use EagerCrossAttention with separate Q / KV projections —
+        # a shared in_proj would project K,V from the latent source, not the encoder.
+        self.cross_attn = EagerCrossAttention(
             embed_dim=embed_dim,
             num_heads=num_heads,
             dropout=dropout,

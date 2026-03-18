@@ -25,7 +25,11 @@ class SimpleBackbone(nn.Module):
 
     def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor = None) -> torch.Tensor:
         hidden = self.embedding(input_ids)
-        return self.linear(hidden)
+        hidden = self.linear(hidden)
+        # Use attention_mask so ONNX export retains it as a graph input
+        if attention_mask is not None:
+            hidden = hidden * attention_mask.unsqueeze(-1).float()
+        return hidden
 
     def merge_lora(self):
         self._lora_merged = True
@@ -39,8 +43,13 @@ class SimplePooling(nn.Module):
         self.linear = nn.Linear(hidden_dim, hidden_dim)
 
     def forward(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor = None) -> torch.Tensor:
-        pooled = hidden_states.mean(dim=1, keepdim=True)
-        return self.linear(pooled).squeeze(1)
+        # Use attention_mask for masked mean pooling so ONNX export retains it
+        if attention_mask is not None:
+            mask_f = (~attention_mask).unsqueeze(-1).float()
+            pooled = (hidden_states * mask_f).sum(dim=1) / mask_f.sum(dim=1).clamp(min=1e-9)
+        else:
+            pooled = hidden_states.mean(dim=1)
+        return self.linear(pooled)
 
 
 class SimpleModel(nn.Module):
@@ -156,7 +165,7 @@ class TestONNXExporter:
         model = SimpleModel(256)
         exporter = ONNXExporter(model=model, output_dir="./test_export")
 
-        assert exporter.opset_version == 18
+        assert exporter.opset_version == 17
         assert exporter.output_dim == 4096
 
     def test_merge_lora(self):
@@ -189,7 +198,7 @@ class TestONNXExporter:
             exporter = ONNXExporter(
                 model=model,
                 output_dir=tmpdir,
-                opset_version=18,
+                opset_version=17,
                 output_dim=128,
             )
             onnx_path = exporter.export(merge_lora=True)
@@ -457,7 +466,7 @@ class TestONNXValidator:
         validator = ONNXValidator(onnx_path)
         info = validator.check_model_structure()
 
-        assert info["opset_version"] >= 18
+        assert info["opset_version"] >= 17
         assert len(info["inputs"]) == 2
         assert len(info["outputs"]) == 1
 

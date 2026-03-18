@@ -79,7 +79,7 @@ def main() -> None:
         "",
         "- **Architecture**: Mistral-7B bidirectional + Latent Attention Pooling",
         "- **Embedding dimension**: 4096 (MRL: 512, 1024, 2048, 4096)",
-        "- **ONNX opset**: 18",
+        "- **ONNX opset**: 17",
         "- **Quantization**: Dynamic INT8 (MatMulConstBOnly)",
         "",
     ])
