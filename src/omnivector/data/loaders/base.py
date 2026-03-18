@@ -105,7 +105,12 @@ class MSMARCOLoader(BaseDataLoader):
 
 
 class HotpotQALoader(BaseDataLoader):
-    """Loader for HotpotQA dataset from HuggingFace datasets."""
+    """Loader for HotpotQA dataset from HuggingFace datasets.
+    
+    Uses the canonical ``hotpotqa/hotpot_qa`` repository on the Hub with the
+    ``fullwiki`` configuration.  The ``supporting_facts`` field is a dict
+    with parallel ``title`` and ``sent_id`` lists.
+    """
 
     def __init__(
         self,
@@ -129,7 +134,7 @@ class HotpotQALoader(BaseDataLoader):
         """Load HotpotQA training pairs."""
         from datasets import load_dataset
 
-        dataset = load_dataset("hotpotqa", "fullwiki", split=self.split)
+        dataset = load_dataset("hotpotqa/hotpot_qa", "fullwiki", split=self.split)
 
         if self.max_samples:
             dataset = dataset.take(self.max_samples)
@@ -140,9 +145,10 @@ class HotpotQALoader(BaseDataLoader):
             if self.use_instruction_prefix:
                 query = f"Instruct: Find supporting facts.\nQuery: {query}"
 
-            supporting_facts_ids = set()
-            for title, sent_id in sample["supporting_facts"]:
-                supporting_facts_ids.add((title, sent_id))
+            # supporting_facts is a dict with parallel lists:
+            #   {"title": [...], "sent_id": [...]}
+            sf = sample["supporting_facts"]
+            supporting_facts_ids = set(zip(sf["title"], sf["sent_id"]))
 
             for doc_title, doc_sents in zip(sample["context"]["title"], sample["context"]["sentences"]):
                 for sent_idx, sent_text in enumerate(doc_sents):
@@ -162,7 +168,7 @@ class HotpotQALoader(BaseDataLoader):
         """Load HotpotQA passage corpus."""
         from datasets import load_dataset
 
-        dataset = load_dataset("hotpotqa", "fullwiki", split="train")
+        dataset = load_dataset("hotpotqa/hotpot_qa", "fullwiki", split="train")
         corpus = {}
         idx = 0
 
@@ -177,7 +183,26 @@ class HotpotQALoader(BaseDataLoader):
 
 
 class BEIRLoader(BaseDataLoader):
-    """Loader for BEIR benchmark datasets."""
+    """Loader for BEIR benchmark datasets.
+
+    Handles two HuggingFace repository formats:
+
+    1. **Parquet repos** (e.g. ``BeIR/nfcorpus``) — have ``corpus`` and
+       ``queries`` configs with matching split names.  Loaded via the
+       standard ``datasets.load_dataset`` API.
+    2. **Legacy-script repos** (e.g. ``BeIR/fiqa``, ``BeIR/scifact``,
+       ``BeIR/arguana``) — contain ``corpus.jsonl.gz`` and
+       ``queries.jsonl.gz`` but rely on a deprecated ``.py`` loading
+       script.  We download the JSONL files directly with
+       ``load_dataset("json", …)``.
+
+    In both cases the loader creates (title → text) training pairs from
+    the corpus, which is the standard approach for unsupervised BEIR
+    pre-training.
+    """
+
+    # Benchmarks whose Hub repos already have auto-converted parquet
+    _PARQUET_BENCHMARKS = {"nfcorpus"}
 
     def __init__(
         self,
@@ -190,7 +215,7 @@ class BEIRLoader(BaseDataLoader):
         
         Args:
             benchmark: BEIR benchmark name (nfcorpus, scifact, arguana, etc).
-            split: Dataset split ('train', 'validation', 'test').
+            split: Ignored for BEIR (corpus split is used automatically).
             max_samples: Limit to N samples (None = all).
             use_instruction_prefix: Add instruction prefix to queries.
             
@@ -222,12 +247,41 @@ class BEIRLoader(BaseDataLoader):
                 f"Must be one of: {valid}"
             )
 
-    def load(self) -> list[EmbeddingPair]:
-        """Load BEIR dataset pairs."""
+    def _load_corpus_dataset(self):
+        """Load the corpus split, handling both parquet and legacy repos."""
         from datasets import load_dataset
 
         dataset_name = f"BeIR/{self.benchmark}"
-        dataset = load_dataset(dataset_name, "corpus", split=self.split)
+
+        if self.benchmark in self._PARQUET_BENCHMARKS:
+            # Parquet repos: config="corpus", split="corpus"
+            return load_dataset(dataset_name, "corpus", split="corpus")
+
+        # Legacy-script repos: load the jsonl.gz directly from the Hub
+        url = (
+            f"https://huggingface.co/datasets/{dataset_name}"
+            f"/resolve/main/corpus.jsonl.gz"
+        )
+        return load_dataset("json", data_files=url, split="train")
+
+    def _load_queries_dataset(self):
+        """Load the queries split, handling both parquet and legacy repos."""
+        from datasets import load_dataset
+
+        dataset_name = f"BeIR/{self.benchmark}"
+
+        if self.benchmark in self._PARQUET_BENCHMARKS:
+            return load_dataset(dataset_name, "queries", split="queries")
+
+        url = (
+            f"https://huggingface.co/datasets/{dataset_name}"
+            f"/resolve/main/queries.jsonl.gz"
+        )
+        return load_dataset("json", data_files=url, split="train")
+
+    def load(self) -> list[EmbeddingPair]:
+        """Load BEIR dataset pairs (title → text from corpus)."""
+        dataset = self._load_corpus_dataset()
 
         if self.max_samples:
             dataset = dataset.take(self.max_samples)
@@ -236,6 +290,9 @@ class BEIRLoader(BaseDataLoader):
         for sample in dataset:
             query = sample.get("title", "")
             passage = sample.get("text", "")
+
+            if not query or not passage:
+                continue
 
             if self.use_instruction_prefix:
                 query = f"Instruct: Find relevant document.\nQuery: {query}"
@@ -249,16 +306,13 @@ class BEIRLoader(BaseDataLoader):
             pairs.append(pair)
 
         logger.info(
-            f"Loaded {len(pairs)} BEIR {self.benchmark} pairs from split '{self.split}'"
+            f"Loaded {len(pairs)} BEIR {self.benchmark} pairs"
         )
         return pairs
 
     def load_corpus(self) -> dict[int, str]:
         """Load BEIR corpus."""
-        from datasets import load_dataset
-
-        dataset_name = f"BeIR/{self.benchmark}"
-        dataset = load_dataset(dataset_name, "corpus")
+        dataset = self._load_corpus_dataset()
 
         corpus = {}
         for idx, sample in enumerate(dataset):
