@@ -5,6 +5,7 @@ Encodes images to 4096-dim embeddings aligned with text embeddings.
 Uses SigLIP-SO400M as the base vision model with projection to target dimension.
 """
 
+import contextlib
 import logging
 
 import torch
@@ -32,6 +33,7 @@ class SigLIPVisionEncoder(nn.Module):
         self,
         model_name: str = "SigLIP-SO400M",
         embed_dim: int = 4096,
+        freeze_backbone: bool = True,
     ) -> None:
         """
         Initialize SigLIP vision encoder.
@@ -39,12 +41,16 @@ class SigLIPVisionEncoder(nn.Module):
         Args:
             model_name: SigLIP model to use
             embed_dim: Target embedding dimension (default 4096)
+            freeze_backbone: If True, freeze the base SigLIP model so only
+                the projection layer is trained (default True).  Set False
+                for end-to-end fine-tuning in Stage 3.
         """
         super().__init__()
 
         self.model_name = model_name
         self.embed_dim = embed_dim
         self.vision_model_dim = 1152  # SigLIP-SO400M output dimension
+        self._freeze_backbone = freeze_backbone
 
         try:
             # Import here to avoid hard dependency
@@ -57,6 +63,12 @@ class SigLIPVisionEncoder(nn.Module):
             logger.warning("open_clip not available, using placeholder")
             self.vision_model = None
             self.preprocess = None
+
+        # Optionally freeze the backbone
+        if freeze_backbone and self.vision_model is not None:
+            for param in self.vision_model.parameters():
+                param.requires_grad = False
+            logger.info("SigLIP backbone frozen (only projection is trainable)")
 
         # Projection to target dimension
         self.projection = nn.Linear(self.vision_model_dim, embed_dim)
@@ -77,8 +89,11 @@ class SigLIPVisionEncoder(nn.Module):
         if self.vision_model is None:
             raise RuntimeError("Vision model not initialized. Install open_clip.")
 
-        # Extract vision features
-        with torch.no_grad():
+        # Only disable gradients when backbone is explicitly frozen.
+        # When freeze_backbone=False (Stage 3), gradients flow through
+        # the SigLIP backbone for end-to-end fine-tuning.
+        ctx = torch.no_grad() if self._freeze_backbone else contextlib.nullcontext()
+        with ctx:
             image_features = self.vision_model.encode_image(images)
             # Normalize
             image_features = image_features / (image_features.norm(dim=-1, keepdim=True) + 1e-6)
@@ -99,10 +114,26 @@ class SigLIPVisionEncoder(nn.Module):
 
     @property
     def trainable_parameters(self) -> int:
-        """Count trainable parameters (only projection)."""
-        return self.projection.weight.numel() + self.projection.bias.numel()
+        """Count trainable parameters (only projection when backbone frozen)."""
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     @property
     def total_parameters(self) -> int:
         """Count total parameters."""
         return sum(p.numel() for p in self.parameters())
+
+    def unfreeze_backbone(self) -> None:
+        """Unfreeze the SigLIP backbone for end-to-end fine-tuning."""
+        if self.vision_model is not None:
+            for param in self.vision_model.parameters():
+                param.requires_grad = True
+            self._freeze_backbone = False
+            logger.info("SigLIP backbone unfrozen for fine-tuning")
+
+    def freeze_backbone(self) -> None:
+        """Freeze the SigLIP backbone (only projection trainable)."""
+        if self.vision_model is not None:
+            for param in self.vision_model.parameters():
+                param.requires_grad = False
+            self._freeze_backbone = True
+            logger.info("SigLIP backbone frozen")

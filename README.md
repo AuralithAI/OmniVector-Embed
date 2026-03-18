@@ -3,7 +3,7 @@
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue)](https://python.org)
 [![PyTorch 2.2–2.3](https://img.shields.io/badge/PyTorch-2.2–2.3-red)](https://pytorch.org)
 [![Transformers 4.44.2](https://img.shields.io/badge/Transformers-4.44.2-yellow)](https://huggingface.co/transformers)
-[![ONNX Opset 18](https://img.shields.io/badge/ONNX-Opset%2018-purple)](https://onnx.ai)
+[![ONNX Opset 17](https://img.shields.io/badge/ONNX-Opset%2017-purple)](https://onnx.ai)
 [![License Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE)
 
 | Stack | Version |
@@ -27,7 +27,7 @@ Production-grade multimodal embedding model that replicates and extends [NV-Embe
 
 | Feature | NV-Embed-v2 | OmniVector-Embed |
 |---|---|---|
-| ONNX export | Not possible (SDPA ops) | Opset 18 + int8 quantization |
+| ONNX export | Not possible (SDPA ops) | Opset 17 + int8 quantization |
 | Modalities | Text only | Text + Code + Image + Video + Audio |
 | Attention | SDPA/Flash | Eager bidirectional (export-safe) |
 | Deployment | GPU-only inference | CPU/GPU via ORT |
@@ -44,13 +44,14 @@ Input → Mistral-7B (bidirectional, eager attention, LoRA)
 ```
 
 - **Backbone**: `mistralai/Mistral-7B-v0.1` with `_update_causal_mask → None` for bidirectional attention
-- **Pooling**: Cross-attention with learned latent queries, followed by mean pooling
-- **Vision**: SigLIP-SO400M (1152 → 4096 projection) for images, temporal attention for video
+- **Pooling**: `EagerCrossAttention` with learned latent queries (separate Q/KV projections), followed by mean pooling
+- **Vision**: SigLIP-SO400M (1152 → 4096 projection, freeze/unfreeze control) for images, temporal self-attention for video
 - **Audio**: Whisper-tiny encoder (384 → 4096 via 2-layer MLP projection) with mean pooling
-- **Loss**: InfoNCE + MRL with in-batch negatives, FAISS hard negative mining, and cross-modal contrastive loss
-- **Training**: 3-stage with DeepSpeed ZeRO-2:
+- **Loss**: InfoNCE + MRL with in-batch negatives, FAISS hard negative mining (with online corpus re-encoding), and cross-modal contrastive loss
+- **Evaluation**: Full MTEB integration (retrieval, STS, clustering, pair classification, re-ranking) with per-stage benchmark targets
+- **Training**: 3-stage with DeepSpeed ZeRO-2 and mixed-precision dtype safety:
   - Stage 1: Retrieval (8M pairs, 20k steps, LR 2e-5)
-  - Stage 2: Generalist (55M pairs, 18k steps, LR 1.5e-5, in-batch negatives OFF)
+  - Stage 2: Generalist (55M pairs, 18k steps, LR 1.5e-5, domain-balanced upsampling)
   - Stage 3: Multimodal alignment (12k steps, LR 5e-6, cross-modal weight 0.2)
 
 See [docs/architecture.md](docs/architecture.md) for a detailed component guide.

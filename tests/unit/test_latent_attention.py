@@ -199,8 +199,10 @@ class TestLatentAttentionPooling:
         loss.backward()
 
         assert pooling.latents.grad is not None, "Latent parameters should have gradients"
-        cross_attn_grad = pooling.cross_attn.in_proj.weight.grad
-        assert cross_attn_grad is not None, "Attention weights should have gradients"
+        cross_attn_grad = pooling.cross_attn.q_proj.weight.grad
+        assert cross_attn_grad is not None, "Cross-attention Q weights should have gradients"
+        k_grad = pooling.cross_attn.k_proj.weight.grad
+        assert k_grad is not None, "Cross-attention K weights should have gradients"
         logger.info("✓ Gradients flow correctly through pooling")
 
     def test_latent_parameters_trainable(self):
