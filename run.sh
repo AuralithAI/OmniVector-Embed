@@ -224,7 +224,10 @@ echo "============================================"
 
 python scripts/evaluate.py \
     --model-path checkpoints/stage2_55M/checkpoint-final \
-    --tasks retrieval
+    --tasks retrieval,sts,clustering \
+    --output-dir eval_results \
+    --stage stage2 \
+    --lora
 
 python scripts/export_onnx.py \
     --model-path checkpoints/stage2_55M/checkpoint-final \

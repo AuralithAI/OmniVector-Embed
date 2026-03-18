@@ -1,4 +1,4 @@
-"""Unit tests for multimodal training pipeline (Week 5).
+"""Unit tests for multimodal training pipeline.
 
 Tests vision data loaders, multimodal dataset/collator, cross-modal
 contrastive loss, and multimodal trainer with mock vision components.

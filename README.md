@@ -13,7 +13,7 @@
 | **Transformers** | 4.44.2 (pinned) |
 | **PEFT** | 0.12.0 (pinned) |
 | **ONNX Runtime** | ≥ 1.18.0 |
-| **ONNX Opset** | 18 |
+| **ONNX Opset** | 17 |
 | **DeepSpeed** | ≥ 0.14.0 (ZeRO-2) |
 | **FAISS** | CPU (IndexFlatIP) |
 | **Base Model** | Mistral-7B-v0.1 |
@@ -136,7 +136,7 @@ python scripts/mine_hard_negatives.py \
 ### 3. Train
 
 ```bash
-# Stage 1: Retrieval (20k steps, 2× A100 80GB)
+# Stage 1: Retrieval (20k steps, DeepSpeed ZeRO-2)
 python scripts/training.py --config configs/stage1_retrieval.yaml
 
 # Stage 2: Generalist (18k steps, resumes from Stage 1)
@@ -157,7 +157,26 @@ All training scripts support `--resume <checkpoint>` to continue from a previous
 ### 4. Evaluate
 
 ```bash
-python scripts/evaluate.py --model-path checkpoints/stage1_best --tasks retrieval
+# Retrieval benchmarks only (fast)
+python scripts/evaluate.py \
+    --model-path checkpoints/stage1_8M/checkpoint-final \
+    --tasks retrieval \
+    --output-dir eval_results \
+    --stage stage1
+
+# Full MTEB suite with target checking
+python scripts/evaluate.py \
+    --model-path checkpoints/stage2_55M/checkpoint-final \
+    --tasks retrieval,sts,clustering,pair_classification,reranking \
+    --output-dir eval_results \
+    --stage stage2 \
+    --lora
+
+# Specific MTEB tasks by name
+python scripts/evaluate.py \
+    --model-path checkpoints/stage2_55M/checkpoint-final \
+    --task-names MSMARCO,NFCorpus,STSBenchmark \
+    --output-dir eval_results
 ```
 
 ## ONNX Export
@@ -165,7 +184,7 @@ python scripts/evaluate.py --model-path checkpoints/stage1_best --tasks retrieva
 ```bash
 # Full pipeline: export → optimize → quantize → validate
 python scripts/export_onnx.py \
-    --model-path checkpoints/stage1_best \
+    --model-path checkpoints/stage2_55M/checkpoint-final \
     --output-dir onnx_export \
     --optimize \
     --quantize-int8 \
@@ -247,28 +266,32 @@ OmniVector-Embed/
 │   │   └── onnx_validator.py       # Cosine parity validation
 │   └── eval/                       # MTEB evaluation utilities
 ├── tests/
-│   ├── unit/                       # ~220 unit tests
-│   └── integration/                # ONNX parity, data loading
+│   ├── unit/                       # ~295 unit + integration tests
+│   └── integration/                # ONNX parity, training loop, data loading
 ├── docs/
-│   └── architecture.md             # Detailed architecture guide
+│   ├── architecture.md             # Detailed architecture guide
+│   └── testing.md                  # Full testing guide (GPU, multi-GPU, CI)
 └── pyproject.toml                  # Dependencies + tool config
 ```
 
 ## Testing
 
 ```bash
-# All unit tests (no GPU required, skips slow tests)
+# Default: all tests except slow (no GPU needed, ~295 tests)
 pytest
 
-# Include integration tests
-pytest -m "not slow"
-
-# Full test suite including model download tests
+# Include slow tests that download Mistral-7B (GPU recommended, ~314 tests)
 pytest -m ""
 
-# With coverage
+# Parallel on 2 GPUs via pytest-xdist
+CUDA_VISIBLE_DEVICES=0,1 pytest -m "" -n 2 --dist loadscope -v
+
+# Coverage report
 pytest --cov=src/omnivector --cov-report=html
 ```
+
+For the full testing guide — markers, multi-GPU setup, fixtures, CI config,
+and troubleshooting — see **[docs/testing.md](docs/testing.md)**.
 
 ## Version Pins
 
@@ -276,7 +299,7 @@ These versions are **load-bearing** — do not upgrade without testing:
 
 - `transformers==4.44.2` — `_update_causal_mask` API for bidirectional attention + RoPE real-valued ops for ONNX
 - `peft==0.12.0` — `merge_and_unload()` + DeepSpeed compatibility
-- `torch>=2.2.0,<2.4.0` — ONNX dynamo export requires opset ≥ 18
+- `torch>=2.2.0,<2.4.0` — ONNX opset 17 support + RoPE real-valued ops for export
 
 ## License
 
