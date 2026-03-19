@@ -102,7 +102,7 @@ echo "  Activated venv: $(which python)"
 # Install dependencies
 echo ""
 echo "[4/8] Installing dependencies..."
-pip install --upgrade pip
+pip install --upgrade pip setuptools wheel
 
 # Detect GPU compute capability and install matching PyTorch
 echo "  Checking CUDA / GPU compatibility..."
@@ -114,7 +114,7 @@ if command -v nvidia-smi &>/dev/null; then
     echo "  Detected GPU compute capability: sm_${SM_VERSION} (major=${SM_MAJOR})"
 
     if [ "${SM_MAJOR:-0}" -ge 12 ]; then
-        echo "  Blackwell (sm_12x) detected — installing PyTorch nightly with CUDA 12.8 support..."
+        echo "  Blackwell (sm_12x) detected — installing PyTorch nightly with CUDA 12.8..."
         NEED_NIGHTLY=true
         pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
     elif [ "${SM_MAJOR:-0}" -ge 10 ]; then
@@ -123,7 +123,25 @@ if command -v nvidia-smi &>/dev/null; then
     fi
 fi
 
-pip install -e ".[dev,test,vision]"
+# Install project deps — use --no-deps first to avoid overwriting the PyTorch we just installed,
+# then install remaining dependencies separately
+if [ "$NEED_NIGHTLY" = true ]; then
+    echo "  Installing project (preserving PyTorch nightly)..."
+    pip install --no-deps -e "."
+    pip install --no-deps -e ".[dev,test,vision]" 2>/dev/null || true
+    # Install all non-torch dependencies from pyproject.toml
+    pip install "transformers==4.44.2" "peft==0.12.0" "accelerate>=0.27.0" \
+        "numpy>=1.24.0" "pydantic>=2.0.0" "pillow>=9.0.0" "einops>=0.7.0" \
+        "tensorboard>=2.14.0" "onnx>=1.16.0" "onnxruntime>=1.18.0" \
+        "onnxscript>=0.1.0" "optimum[onnxruntime]>=1.21.0" "deepspeed>=0.14.0" \
+        "faiss-cpu>=1.8.0" "mteb>=1.12.0" "datasets>=2.16.0" "pyarrow>=14.0.0" \
+        "tqdm>=4.66.0" "pyyaml>=6.0" "sentence-transformers>=3.0.0" \
+        "ruff>=0.3.0" "mypy>=1.8.0" "pre-commit>=3.6.0" \
+        "pytest>=7.4.0" "pytest-cov>=4.1.0" "pytest-xdist>=3.5.0" \
+        "pytest-timeout>=2.1.0"
+else
+    pip install -e ".[dev,test,vision]"
+fi
 pip install deepspeed
 
 # Verify GPU
