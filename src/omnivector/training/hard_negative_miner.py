@@ -1,6 +1,7 @@
 """Hard negative mining using FAISS and positive-aware thresholding."""
 
 import logging
+import os
 from typing import Optional
 
 import faiss
@@ -22,6 +23,7 @@ class HardNegativeMiner:
         corpus_ids: list[int],
         threshold_ratio: float = 0.95,
         num_negatives: int = 7,
+        num_threads: Optional[int] = None,
     ):
         """Initialize FAISS index and parameters.
         
@@ -30,6 +32,8 @@ class HardNegativeMiner:
             corpus_ids: List of corpus IDs corresponding to embeddings.
             threshold_ratio: Select negatives with score < positive_score * threshold_ratio.
             num_negatives: Number of hard negatives to return per query.
+            num_threads: Number of CPU threads for FAISS search. Defaults to
+                all available cores (``os.cpu_count()``).
         
         Raises:
             ValueError: If embeddings dimensions mismatch or inputs are invalid.
@@ -50,9 +54,14 @@ class HardNegativeMiner:
         self.num_negatives = num_negatives
         self.embedding_dim = corpus_embeddings.shape[1]
 
+        # Set FAISS thread count for parallel search
+        n_threads = num_threads or os.cpu_count() or 1
+        faiss.omp_set_num_threads(n_threads)
+
         self.index = self._build_index()
         logger.info(
-            f"Initialized HardNegativeMiner with {len(corpus_embeddings)} corpus items"
+            f"Initialized HardNegativeMiner with {len(corpus_embeddings)} corpus items "
+            f"({n_threads} threads, dim={self.embedding_dim})"
         )
 
     def _build_index(self) -> faiss.IndexFlatIP:
