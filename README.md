@@ -299,7 +299,7 @@ These versions are **load-bearing** — do not upgrade without testing:
 
 - `transformers==4.44.2` — `_update_causal_mask` API for bidirectional attention + RoPE real-valued ops for ONNX
 - `peft==0.12.0` — `merge_and_unload()` + DeepSpeed compatibility
-- `torch>=2.2.0,<2.4.0` — ONNX opset 17 support + RoPE real-valued ops for export
+- `torch>=2.2.0` — ONNX opset 17 support + RoPE real-valued ops for export. Nightly required for Blackwell (sm_120) GPUs — `run.sh` handles this automatically.
 
 ## License
 
