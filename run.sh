@@ -103,6 +103,26 @@ echo "  Activated venv: $(which python)"
 echo ""
 echo "[4/8] Installing dependencies..."
 pip install --upgrade pip
+
+# Detect GPU compute capability and install matching PyTorch
+echo "  Checking CUDA / GPU compatibility..."
+NEED_NIGHTLY=false
+if command -v nvidia-smi &>/dev/null; then
+    # Extract compute capability (e.g. 12.0 for Blackwell sm_120)
+    SM_VERSION=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d '[:space:]')
+    SM_MAJOR=$(echo "$SM_VERSION" | cut -d. -f1)
+    echo "  Detected GPU compute capability: sm_${SM_VERSION} (major=${SM_MAJOR})"
+
+    if [ "${SM_MAJOR:-0}" -ge 12 ]; then
+        echo "  Blackwell (sm_12x) detected — installing PyTorch nightly with CUDA 12.8 support..."
+        NEED_NIGHTLY=true
+        pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
+    elif [ "${SM_MAJOR:-0}" -ge 10 ]; then
+        echo "  Hopper/Ada (sm_${SM_MAJOR}x) detected — installing PyTorch with CUDA 12.4..."
+        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+    fi
+fi
+
 pip install -e ".[dev,test,vision]"
 pip install deepspeed
 
@@ -116,7 +136,9 @@ if n == 0:
     print('  WARNING: No CUDA GPUs detected. Training will be slow on CPU.')
 else:
     for i in range(n):
-        print(f'  GPU {i}: {torch.cuda.get_device_name(i)} ({torch.cuda.get_device_properties(i).total_mem / 1e9:.1f} GB)')
+        props = torch.cuda.get_device_properties(i)
+        mem_gb = props.total_memory / 1e9
+        print(f'  GPU {i}: {props.name} ({mem_gb:.1f} GB, sm_{props.major}{props.minor})')
     print(f'  Total: {n} GPU(s) ready')
 "
 
