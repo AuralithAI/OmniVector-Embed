@@ -3,6 +3,8 @@ name: Release - Version Tag and Publish
 on:
   push:
     branches: [main]
+    paths:
+      - 'VERSION'
 
 jobs:
   check-version-change:
