@@ -39,6 +39,9 @@ TEXT_DATASETS_STAGE1 = [
 TEXT_DATASETS_STAGE2 = TEXT_DATASETS_STAGE1 + [
     "beir/fever",
     "beir/bioasq",
+    "beir/trec-covid",
+    "beir/scidocs",
+    "beir/dbpedia-entity",
 ]
 
 
@@ -954,16 +957,36 @@ def build_stage_dataset(
 
         extra_needed = target_size - len(all_records)
         n_domains = len(domain_indices)
-        base_per_domain = extra_needed // n_domains
+
+        # Proportional allocation: each domain gets a share proportional
+        # to its size, but we add a floor so tiny domains still get
+        # representation, and cap at ratio * original_size.
+        total_records = sum(len(v) for v in domain_indices.values())
+        max_repeat = max(int(ratio) + 2, 10)  # allow generous repetition
 
         extra_records: list[dict] = []
         _t0 = _time.monotonic()
+        allocated_total = 0
+        domain_quotas: dict[str, int] = {}
+        for dom, indices in domain_indices.items():
+            # Proportional share + small floor for tiny domains
+            prop_share = int(extra_needed * len(indices) / total_records)
+            floor_share = max(len(indices), 1000)
+            quota = max(prop_share, floor_share)
+            # Cap at max_repeat * original size
+            quota = min(quota, len(indices) * max_repeat)
+            domain_quotas[dom] = quota
+            allocated_total += quota
+
+        # Scale quotas if we over-allocated
+        if allocated_total > extra_needed:
+            scale = extra_needed / allocated_total
+            domain_quotas = {d: int(q * scale) for d, q in domain_quotas.items()}
+
         _domain_i = 0
         for dom, indices in domain_indices.items():
             _domain_i += 1
-            # Give each domain a proportional share, capped at 5x its
-            # original size to prevent any single domain from dominating
-            domain_quota = min(base_per_domain, len(indices) * 5)
+            domain_quota = domain_quotas[dom]
             if domain_quota == 0:
                 continue
             sampled = rng.choice(indices, size=domain_quota, replace=True)
@@ -977,27 +1000,46 @@ def build_stage_dataset(
                     f"{_elapsed:.1f}s elapsed"
                 )
 
-        # Fill the remainder from underrepresented domains
+        # Fill the remainder from underrepresented domains (vectorised)
         still_needed = extra_needed - len(extra_records)
         if still_needed > 0:
             logger.info(
-                f"Filling {still_needed} remaining records from underrepresented domains..."
+                f"Filling {still_needed} remaining records from "
+                f"underrepresented domains (vectorised)..."
             )
             # Weight towards smaller domains to improve balance
-            domain_weights = np.array([1.0 / max(len(idxs), 1) for idxs in domain_indices.values()])
-            domain_weights /= domain_weights.sum()
             domain_names = list(domain_indices.keys())
+            domain_weights = np.array(
+                [1.0 / max(len(domain_indices[d]), 1) for d in domain_names]
+            )
+            domain_weights /= domain_weights.sum()
 
-            _log_interval = max(still_needed // 10, 1)
-            for _fill_i in range(still_needed):
-                chosen_dom = rng.choice(domain_names, p=domain_weights)
-                chosen_idx = rng.choice(domain_indices[chosen_dom])
-                extra_records.append(all_records[chosen_idx])
-                if (_fill_i + 1) % _log_interval == 0:
+            # Vectorised: draw all domain choices at once, then draw
+            # record indices per domain in bulk — avoids 44M Python iterations
+            _t_fill = _time.monotonic()
+            chosen_domains = rng.choice(
+                len(domain_names), size=still_needed, p=domain_weights
+            )
+            domain_counts_fill = np.bincount(chosen_domains, minlength=len(domain_names))
+
+            remainder_indices: list[int] = []
+            for _di, (dom, count) in enumerate(zip(domain_names, domain_counts_fill)):
+                if count == 0:
+                    continue
+                idxs = np.array(domain_indices[dom])
+                sampled = rng.choice(idxs, size=int(count), replace=True)
+                remainder_indices.extend(sampled.tolist())
+                if (_di + 1) % 5 == 0 or _di + 1 == len(domain_names):
                     logger.info(
-                        f"Remainder fill: {_fill_i + 1}/{still_needed} "
-                        f"({100 * (_fill_i + 1) / still_needed:.1f}%)"
+                        f"Remainder fill: domain {_di + 1}/{len(domain_names)} "
+                        f"({dom}) — {len(remainder_indices)}/{still_needed} "
+                        f"({100 * len(remainder_indices) / still_needed:.1f}%)"
                     )
+
+            extra_records.extend([all_records[i] for i in remainder_indices])
+            logger.info(
+                f"Remainder fill complete in {_time.monotonic() - _t_fill:.1f}s"
+            )
 
         all_records.extend(extra_records)
         logger.info(f"Upsampling complete: {len(all_records)} total records")
