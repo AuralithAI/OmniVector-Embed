@@ -64,10 +64,36 @@ class HardNegativeMiner:
             f"({n_threads} threads, dim={self.embedding_dim})"
         )
 
-    def _build_index(self) -> faiss.IndexFlatIP:
-        """Build FAISS index for inner product search."""
-        index = faiss.IndexFlatIP(self.embedding_dim)
-        index.add(self.corpus_embeddings)
+    def _build_index(self) -> faiss.Index:
+        """Build FAISS index for inner product search.
+
+        Uses IVF (inverted file) index for corpora > 50K vectors for
+        dramatically faster approximate search.  Falls back to exact
+        ``IndexFlatIP`` for small corpora.
+        """
+        n = len(self.corpus_embeddings)
+        dim = self.embedding_dim
+
+        if n > 50_000:
+            # IVF: sqrt(n) clusters, probe 10% of them — good speed/recall trade-off
+            n_clusters = int(np.sqrt(n))
+            n_probe = max(8, n_clusters // 10)
+
+            quantizer = faiss.IndexFlatIP(dim)
+            index = faiss.IndexIVFFlat(quantizer, dim, n_clusters, faiss.METRIC_INNER_PRODUCT)
+            logger.info(
+                f"Training IVF index: {n_clusters} clusters, nprobe={n_probe} "
+                f"on {n} vectors (dim={dim})..."
+            )
+            index.train(self.corpus_embeddings)
+            index.nprobe = n_probe
+            index.add(self.corpus_embeddings)
+            logger.info("IVF index built and populated.")
+        else:
+            index = faiss.IndexFlatIP(dim)
+            index.add(self.corpus_embeddings)
+            logger.info("Using exact IndexFlatIP (small corpus).")
+
         return index
 
     def mine(
