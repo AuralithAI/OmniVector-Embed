@@ -15,7 +15,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          running-workflow-name: "Verify CI Passed"
+          running-workflow-name: ${{ github.workflow }}
           wait-interval: 30
           allowed-conclusions: success,skipped
 
