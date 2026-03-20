@@ -10,14 +10,14 @@ jobs:
     name: Verify CI Passed
     runs-on: ubuntu-latest
     steps:
-      - name: Wait for CI workflow
+      - name: Wait for all CI checks to complete
         uses: lewagon/wait-on-check-action@v1.3.4
         with:
           ref: ${{ github.sha }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          check-name: "Build & Check Installation"
-          wait-interval: 15
-          allowed-conclusions: success
+          running-workflow-name: "Verify CI Passed"
+          wait-interval: 30
+          allowed-conclusions: success,skipped
 
   # ── Skip releases triggered by the bot's own version-bump commit ──
   guard:
