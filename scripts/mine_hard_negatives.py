@@ -70,7 +70,7 @@ def mine_negatives(
     )
 
     all_negatives = miner.mine_batch(
-        queries=query_embeddings,
+        query_embeddings=query_embeddings,
         positive_ids=positive_ids,
     )
 
