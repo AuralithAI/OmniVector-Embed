@@ -115,6 +115,7 @@ def load_multimodal_datasets(
     Returns:
         List of dicts with query, positive, domain, modality keys.
     """
+    import time as _time
     from datasets import load_dataset
 
     multimodal_pairs = []
@@ -128,6 +129,8 @@ def load_multimodal_datasets(
             streaming=True,
         )
         count = 0
+        _t0 = _time.monotonic()
+        _log_interval = 10_000
         for sample in laion:
             if count >= max_image_samples:
                 break
@@ -142,6 +145,15 @@ def load_multimodal_datasets(
                     "image_url": url,
                 })
                 count += 1
+                if count % _log_interval == 0:
+                    _elapsed = _time.monotonic() - _t0
+                    _rate = count / _elapsed if _elapsed > 0 else 0
+                    _eta = (max_image_samples - count) / _rate if _rate > 0 else 0
+                    logger.info(
+                        f"LAION progress: {count}/{max_image_samples} "
+                        f"({100*count/max_image_samples:.1f}%) — "
+                        f"{_rate:.0f} samples/s, ETA={_eta:.0f}s"
+                    )
         logger.info(f"Loaded {count} LAION image-text pairs")
     except Exception as e:
         logger.warning(f"Failed to load LAION: {e}")
@@ -155,6 +167,8 @@ def load_multimodal_datasets(
             streaming=True,
         )
         count = 0
+        _t0 = _time.monotonic()
+        _log_interval = 10_000
         for sample in webvid:
             if count >= max_video_samples:
                 break
@@ -169,21 +183,49 @@ def load_multimodal_datasets(
                     "video_url": url,
                 })
                 count += 1
+                if count % _log_interval == 0:
+                    _elapsed = _time.monotonic() - _t0
+                    _rate = count / _elapsed if _elapsed > 0 else 0
+                    _eta = (max_video_samples - count) / _rate if _rate > 0 else 0
+                    logger.info(
+                        f"WebVid progress: {count}/{max_video_samples} "
+                        f"({100*count/max_video_samples:.1f}%) — "
+                        f"{_rate:.0f} samples/s, ETA={_eta:.0f}s"
+                    )
         logger.info(f"Loaded {count} WebVid video-text pairs")
     except Exception as e:
         logger.warning(f"Failed to load WebVid: {e}")
 
-    # AudioSet (audio-text)
+    # AudioSet (audio-text) — load metadata only, skip audio decoding
     try:
         logger.info("Loading AudioSet (30k samples)...")
+        # Use streaming to avoid triggering audio decoding (torchcodec)
+        # We only need labels and video_id, not the actual audio bytes
         audioset = load_dataset(
             "agkphysics/AudioSet",
             split="train",
             streaming=True,
         )
+        # Remove the audio column to prevent torchcodec decoding.
+        # For streaming datasets, column_names may be available or not.
+        try:
+            cols = audioset.column_names
+            if "audio" in cols:
+                audioset = audioset.remove_columns(["audio"])
+                logger.info("Removed 'audio' column to skip decoding")
+        except Exception:
+            # If column_names isn't available, select only needed columns
+            try:
+                audioset = audioset.select_columns(["human_labels", "video_id"])
+                logger.info("Selected metadata-only columns")
+            except Exception:
+                logger.info("Could not filter columns, will iterate raw")
         count = 0
+        _t0 = _time.monotonic()
+        _log_interval = 5_000
+        max_audio = 30_000
         for sample in audioset:
-            if count >= 30_000:
+            if count >= max_audio:
                 break
             labels = sample.get("human_labels", sample.get("labels", ""))
             if isinstance(labels, list):
@@ -198,6 +240,15 @@ def load_multimodal_datasets(
                     "audio_id": video_id,
                 })
                 count += 1
+                if count % _log_interval == 0:
+                    _elapsed = _time.monotonic() - _t0
+                    _rate = count / _elapsed if _elapsed > 0 else 0
+                    _eta = (max_audio - count) / _rate if _rate > 0 else 0
+                    logger.info(
+                        f"AudioSet progress: {count}/{max_audio} "
+                        f"({100*count/max_audio:.1f}%) — "
+                        f"{_rate:.0f} samples/s, ETA={_eta:.0f}s"
+                    )
         logger.info(f"Loaded {count} AudioSet audio-text pairs")
     except Exception as e:
         logger.warning(f"Failed to load AudioSet: {e}")
@@ -208,7 +259,11 @@ def load_multimodal_datasets(
         code_ds = load_dataset("code_search_net", "all", split="train")
         if max_code_samples:
             code_ds = code_ds.select(range(min(max_code_samples, len(code_ds))))
-        for sample in code_ds:
+        total_code = len(code_ds)
+        _t0 = _time.monotonic()
+        _log_interval = 200_000
+        code_count = 0
+        for i, sample in enumerate(code_ds):
             docstring = sample.get("func_documentation_string", "")
             code = sample.get("func_code_string", "")
             lang = sample.get("language", "unknown")
@@ -219,7 +274,17 @@ def load_multimodal_datasets(
                     "domain": f"code_{lang}",
                     "modality": "text",
                 })
-        logger.info(f"Loaded {len(code_ds)} CodeSearchNet pairs")
+                code_count += 1
+            if (i + 1) % _log_interval == 0:
+                _elapsed = _time.monotonic() - _t0
+                _rate = (i + 1) / _elapsed if _elapsed > 0 else 0
+                _eta = (total_code - i - 1) / _rate if _rate > 0 else 0
+                logger.info(
+                    f"CodeSearchNet progress: {i+1}/{total_code} "
+                    f"({100*(i+1)/total_code:.1f}%) — "
+                    f"{_rate:.0f} rows/s, ETA={_eta:.0f}s"
+                )
+        logger.info(f"Loaded {code_count} CodeSearchNet pairs (from {total_code} rows)")
     except Exception as e:
         logger.warning(f"Failed to load CodeSearchNet: {e}")
 
@@ -678,12 +743,18 @@ def save_dataset(
     Returns:
         Path to saved file.
     """
+    import time as _time
+
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / filename
 
+    total = len(pairs)
+    _log_interval = max(total // 10, 1)
+    _t0 = _time.monotonic()
+
     with open(output_file, "w", encoding="utf-8") as f:
-        for pair in pairs:
+        for i, pair in enumerate(pairs):
             if hasattr(pair, "query"):
                 record = {
                     "query": pair.query,
@@ -694,6 +765,16 @@ def save_dataset(
             else:
                 record = pair
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+            if (i + 1) % _log_interval == 0:
+                _elapsed = _time.monotonic() - _t0
+                _rate = (i + 1) / _elapsed if _elapsed > 0 else 0
+                _eta = (total - i - 1) / _rate if _rate > 0 else 0
+                logger.info(
+                    f"Saving {filename}: {i+1}/{total} "
+                    f"({100*(i+1)/total:.0f}%) — "
+                    f"{_rate:.0f} records/s, ETA={_eta:.0f}s"
+                )
 
     logger.info(f"Saved {len(pairs)} pairs to {output_file}")
     return output_file
@@ -784,6 +865,8 @@ def build_stage_dataset(
 
     # Domain-balanced upsampling to target size
     if target_size and len(all_records) < target_size:
+        import time as _time
+
         ratio = target_size / len(all_records)
         logger.info(
             f"Upsampling from {len(all_records)} to {target_size} "
@@ -798,17 +881,24 @@ def build_stage_dataset(
         rng = np.random.default_rng(42)
 
         # Group records by domain for balanced sampling
+        logger.info("Grouping records by domain...")
         domain_indices: dict[str, list[int]] = {}
         for i, rec in enumerate(all_records):
             dom = rec.get("domain", "unknown")
             domain_indices.setdefault(dom, []).append(i)
+
+        logger.info(f"Found {len(domain_indices)} domains: "
+                     f"{', '.join(f'{k}({len(v)})' for k, v in sorted(domain_indices.items(), key=lambda x: -len(x[1])))}")
 
         extra_needed = target_size - len(all_records)
         n_domains = len(domain_indices)
         base_per_domain = extra_needed // n_domains
 
         extra_records: list[dict] = []
+        _t0 = _time.monotonic()
+        _domain_i = 0
         for dom, indices in domain_indices.items():
+            _domain_i += 1
             # Give each domain a proportional share, capped at 5x its
             # original size to prevent any single domain from dominating
             domain_quota = min(base_per_domain, len(indices) * 5)
@@ -816,10 +906,19 @@ def build_stage_dataset(
                 continue
             sampled = rng.choice(indices, size=domain_quota, replace=True)
             extra_records.extend([all_records[i] for i in sampled])
+            if _domain_i % 5 == 0 or _domain_i == n_domains:
+                _elapsed = _time.monotonic() - _t0
+                logger.info(
+                    f"Upsampling progress: domain {_domain_i}/{n_domains} "
+                    f"({dom}) — {len(extra_records)}/{extra_needed} extra records "
+                    f"generated ({100*len(extra_records)/extra_needed:.1f}%) — "
+                    f"{_elapsed:.1f}s elapsed"
+                )
 
         # Fill the remainder from underrepresented domains
         still_needed = extra_needed - len(extra_records)
         if still_needed > 0:
+            logger.info(f"Filling {still_needed} remaining records from underrepresented domains...")
             # Weight towards smaller domains to improve balance
             domain_weights = np.array([
                 1.0 / max(len(idxs), 1) for idxs in domain_indices.values()
@@ -827,12 +926,19 @@ def build_stage_dataset(
             domain_weights /= domain_weights.sum()
             domain_names = list(domain_indices.keys())
 
-            for _ in range(still_needed):
+            _log_interval = max(still_needed // 10, 1)
+            for _fill_i in range(still_needed):
                 chosen_dom = rng.choice(domain_names, p=domain_weights)
                 chosen_idx = rng.choice(domain_indices[chosen_dom])
                 extra_records.append(all_records[chosen_idx])
+                if (_fill_i + 1) % _log_interval == 0:
+                    logger.info(
+                        f"Remainder fill: {_fill_i+1}/{still_needed} "
+                        f"({100*(_fill_i+1)/still_needed:.1f}%)"
+                    )
 
         all_records.extend(extra_records)
+        logger.info(f"Upsampling complete: {len(all_records)} total records")
 
     # Subsample to target size if needed
     if target_size and len(all_records) > target_size:
@@ -842,8 +948,12 @@ def build_stage_dataset(
         logger.info(f"Subsampled to {target_size} records")
 
     # Shuffle and save combined dataset
+    import time as _time
+    logger.info(f"Shuffling {len(all_records)} records...")
+    _t0 = _time.monotonic()
     rng = np.random.default_rng(42)
     rng.shuffle(all_records)
+    logger.info(f"Shuffle complete in {_time.monotonic() - _t0:.1f}s")
     save_dataset(all_records, output_dir, "train.jsonl")
 
     # Save stats
