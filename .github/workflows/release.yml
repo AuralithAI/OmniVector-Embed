@@ -1,182 +1,197 @@
-name: Release - Auto Version, Tag, and Publish
+# -----------------------------------------------------------------------
+#  OmniVector-Embed — Release
+#
+#  Fires after CI passes on main (via workflow_run).
+#    1. Auto-increment patch tag from git tags (v0.1.0 → v0.1.1)
+#    2. Build sdist + wheel
+#    3. Publish to PyPI via OIDC trusted publisher
+#    4. Create GitHub Release with changelog + wheel assets
+#
+#  For major/minor bumps: manually push a tag, e.g. git tag v0.2.0
+# -----------------------------------------------------------------------
+name: Release
 
-# Trigger AFTER the CI workflow completes on main — this is GitHub's
-# native mechanism and avoids all the check-name matching issues with
-# third-party wait actions.
 on:
   workflow_run:
     workflows: ["CI - Lint, Type Check, Test"]
     types: [completed]
     branches: [main]
 
-# Serialize releases — if two CI runs finish close together, the second
-# release waits for the first to complete instead of racing on version
-# bumps and tags.
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  PYTHON_DEFAULT: "3.10"
+
 concurrency:
-  group: release-main
-  cancel-in-progress: false
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  # ── Only proceed if CI succeeded ──
-  guard:
-    name: Gate & Skip Bot Commits
+  # -----------------------------------------------------------------
+  #  1. Build
+  # -----------------------------------------------------------------
+  build:
+    name: Build
     runs-on: ubuntu-latest
     if: github.event.workflow_run.conclusion == 'success'
     outputs:
-      should-release: ${{ steps.check.outputs.should-release }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      should-release: ${{ steps.skip.outputs.should-release }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-          fetch-depth: 1
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
 
-      - name: Check commit author
-        id: check
+      - name: Skip bot commits
+        id: skip
         run: |
           AUTHOR=$(git log -1 --pretty=format:'%an')
           MSG=$(git log -1 --pretty=format:'%s')
           if [[ "$AUTHOR" == "github-actions[bot]" ]] || [[ "$MSG" == *"[skip ci]"* ]]; then
-            echo "should-release=false" >> $GITHUB_OUTPUT
+            echo "should-release=false" >> "$GITHUB_OUTPUT"
             echo "Skipping — bot commit or [skip ci]"
           else
-            echo "should-release=true" >> $GITHUB_OUTPUT
+            echo "should-release=true" >> "$GITHUB_OUTPUT"
           fi
 
-  # ── Main release job ──
-  bump-and-release:
-    name: Bump Version, Tag, Build & Release
+      - uses: actions/setup-python@v5
+        if: steps.skip.outputs.should-release == 'true'
+        with:
+          python-version: ${{ env.PYTHON_DEFAULT }}
+
+      - name: Determine version
+        if: steps.skip.outputs.should-release == 'true'
+        id: version
+        run: |
+          # Auto-increment patch from the latest git tag
+          LATEST=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
+          if [ -z "$LATEST" ]; then
+            VERSION="0.1.0"
+          else
+            VER="${LATEST#v}"
+            MAJOR=$(echo "$VER" | cut -d. -f1)
+            MINOR=$(echo "$VER" | cut -d. -f2)
+            PATCH=$(echo "$VER" | cut -d. -f3)
+            VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
+          fi
+          TAG="v${VERSION}"
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Version: ${VERSION}  Tag: ${TAG}"
+
+      - name: Install build tools
+        if: steps.skip.outputs.should-release == 'true'
+        run: pip install build twine
+
+      - name: Build sdist + wheel
+        if: steps.skip.outputs.should-release == 'true'
+        run: python -m build
+
+      - name: Verify
+        if: steps.skip.outputs.should-release == 'true'
+        run: twine check dist/*
+
+      - name: Upload artifacts
+        if: steps.skip.outputs.should-release == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+          retention-days: 5
+
+  # -----------------------------------------------------------------
+  #  2. Tag + Release + Publish
+  # -----------------------------------------------------------------
+  release:
+    name: Release
+    needs: build
+    if: needs.build.outputs.should-release == 'true'
     runs-on: ubuntu-latest
-    needs: guard
-    if: needs.guard.outputs.should-release == 'true'
     permissions:
       contents: write
       id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: main
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-tags: true
 
-      # ── Bail if main has advanced past the commit CI validated ──
-      - name: Check commit is still at main tip
-        id: freshness
-        run: |
-          git fetch origin main
-          MAIN_TIP=$(git rev-parse origin/main)
-          CI_SHA="${{ github.event.workflow_run.head_sha }}"
-          if [ "$MAIN_TIP" != "$CI_SHA" ]; then
-            echo "::warning::main has advanced ($MAIN_TIP) past CI commit ($CI_SHA) — skipping release"
-            echo "stale=true" >> $GITHUB_OUTPUT
-          else
-            echo "stale=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Set up Python
-        if: steps.freshness.outputs.stale != 'true'
-        uses: actions/setup-python@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
         with:
-          python-version: "3.10"
+          name: dist
+          path: dist/
 
-      - name: Install build tools
-        if: steps.freshness.outputs.stale != 'true'
-        run: pip install build
-
-      # ── Determine next version from conventional commits ──
-      - name: Determine version bump
-        if: steps.freshness.outputs.stale != 'true'
-        id: version
+      # -- Update VERSION file + create tag --
+      - name: Create tag
         run: |
-          CURRENT=$(cat VERSION | tr -d '[:space:]')
-          echo "current=$CURRENT" >> $GITHUB_OUTPUT
+          TAG="${{ needs.build.outputs.tag }}"
+          VERSION="${{ needs.build.outputs.version }}"
 
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-
-          # Commits since last tag (or all commits if no tag exists)
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          if [ -n "$LAST_TAG" ]; then
-            COMMITS=$(git log ${LAST_TAG}..HEAD --pretty=format:"%s")
+          if git rev-parse "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists — skipping"
           else
-            COMMITS=$(git log --pretty=format:"%s")
+            # Update VERSION file
+            echo "${VERSION}" > VERSION
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add VERSION
+            git commit -m "chore: bump version to ${VERSION} [skip ci]"
+            git push origin main
+
+            git tag -a "${TAG}" -m "Release ${TAG}"
+            git push origin "${TAG}"
+            echo "Created tag ${TAG}"
           fi
 
-          # Conventional-commit bump rules
-          if echo "$COMMITS" | grep -qiE "^(BREAKING CHANGE|feat!|fix!)"; then
-            MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0; BUMP="major"
-          elif echo "$COMMITS" | grep -qiE "^feat"; then
-            MINOR=$((MINOR + 1)); PATCH=0; BUMP="minor"
-          else
-            PATCH=$((PATCH + 1)); BUMP="patch"
-          fi
-
-          NEW="${MAJOR}.${MINOR}.${PATCH}"
-          echo "new=$NEW" >> $GITHUB_OUTPUT
-          echo "bump=$BUMP" >> $GITHUB_OUTPUT
-          echo "::notice::Version bump: $CURRENT → $NEW ($BUMP)"
-
-      # ── Bail if the computed tag already exists ──
-      - name: Check for existing tag
-        if: steps.freshness.outputs.stale != 'true'
-        id: tag-check
-        run: |
-          TAG="v${{ steps.version.outputs.new }}"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-            echo "::warning::Tag $TAG already exists — skipping release"
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-
-      # ── Update VERSION, commit, tag ──
-      - name: Commit version bump
-        if: steps.freshness.outputs.stale != 'true' && steps.tag-check.outputs.exists == 'false'
-        run: |
-          echo "${{ steps.version.outputs.new }}" > VERSION
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add VERSION
-          git commit -m "chore: bump version to ${{ steps.version.outputs.new }} [skip ci]"
-          git push origin main
-
-      - name: Create and push tag
-        if: steps.freshness.outputs.stale != 'true' && steps.tag-check.outputs.exists == 'false'
-        run: |
-          TAG="v${{ steps.version.outputs.new }}"
-          git tag -a "$TAG" -m "Release $TAG"
-          git push origin "$TAG"
-
-      # ── Build wheel + sdist ──
-      - name: Build package
-        if: steps.freshness.outputs.stale != 'true' && steps.tag-check.outputs.exists == 'false'
-        run: |
-          python -m build
-          echo "=== Built artifacts ==="
-          ls -lh dist/
-
-      # ── GitHub Release with auto-generated notes ──
-      - name: Create GitHub Release
-        if: steps.freshness.outputs.stale != 'true' && steps.tag-check.outputs.exists == 'false'
-        uses: ncipollo/release-action@v1
-        with:
-          tag: "v${{ steps.version.outputs.new }}"
-          name: "v${{ steps.version.outputs.new }}"
-          artifacts: "dist/*"
-          artifactErrorsFailBuild: true
-          generateReleaseNotes: true
-          body: |
-            ## Release v${{ steps.version.outputs.new }}
-
-            **Version bump**: `${{ steps.version.outputs.current }}` → `${{ steps.version.outputs.new }}` (${{ steps.version.outputs.bump }})
-
-            ### Install
-            ```bash
-            pip install omnivector-embed==${{ steps.version.outputs.new }}
-            ```
-
-      # ── Publish to PyPI (trusted publishing) ──
+      # -- Publish to PyPI --
       - name: Publish to PyPI
-        if: steps.freshness.outputs.stale != 'true' && steps.tag-check.outputs.exists == 'false'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          packages-dir: dist/
-        continue-on-error: true  # Don't fail release if PyPI isn't configured yet
+          skip-existing: true
+        continue-on-error: true
+
+      # -- Create GitHub Release --
+      - name: Generate changelog
+        id: changelog
+        run: |
+          TAG="${{ needs.build.outputs.tag }}"
+          PREV_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -v "^${TAG}$" | head -1)
+
+          {
+            echo "## What's Changed"
+            echo ""
+            if [ -n "$PREV_TAG" ]; then
+              git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)" --no-merges 2>/dev/null | head -30 || true
+            else
+              echo "Initial release 🎉"
+            fi
+            echo ""
+            echo ""
+            echo "---"
+            echo ""
+            echo "### 📥 Install"
+            echo '```bash'
+            echo "pip install omnivector-embed==${{ needs.build.outputs.version }}"
+            echo '```'
+          } > /tmp/changelog.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build.outputs.tag }}
+          name: "v${{ needs.build.outputs.version }}"
+          body_path: /tmp/changelog.md
+          draft: false
+          prerelease: false
+          files: dist/*
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
