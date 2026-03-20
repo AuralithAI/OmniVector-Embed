@@ -1,48 +1,62 @@
-name: Release - Version Tag and Publish
+name: Release - Auto Version, Tag, and Publish
 
 on:
   push:
     branches: [main]
-    paths:
-      - 'VERSION'
 
 jobs:
-  check-version-change:
-    name: Check Version Change
+  # ── Gate: wait for CI to pass on this exact commit ──
+  ci-check:
+    name: Verify CI Passed
     runs-on: ubuntu-latest
+    steps:
+      - name: Wait for CI workflow
+        uses: lewagon/wait-on-check-action@v1.3.4
+        with:
+          ref: ${{ github.sha }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          check-name: "Build & Check Installation"
+          wait-interval: 15
+          allowed-conclusions: success
+
+  # ── Skip releases triggered by the bot's own version-bump commit ──
+  guard:
+    name: Skip Bot Commits
+    runs-on: ubuntu-latest
+    needs: ci-check
     outputs:
-      version-changed: ${{ steps.check.outputs.version-changed }}
-      new-version: ${{ steps.check.outputs.new-version }}
+      should-release: ${{ steps.check.outputs.should-release }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 1
 
-      - name: Check if VERSION file changed
+      - name: Check commit author
         id: check
         run: |
-          set +e  # Don't exit on error
-          
-          # Try to get VERSION from previous commit
-          # If it doesn't exist (new file) or differs, mark as changed
-          OLD_VERSION=$(git show HEAD~1:VERSION 2>/dev/null)
-          NEW_VERSION=$(cat VERSION)
-          
-          # If old version doesn't exist or differs from new version, version changed
-          if [ -z "$OLD_VERSION" ] || [ "$NEW_VERSION" != "$OLD_VERSION" ]; then
-            echo "version-changed=true" >> $GITHUB_OUTPUT
-            echo "new-version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          AUTHOR=$(git log -1 --pretty=format:'%an')
+          MSG=$(git log -1 --pretty=format:'%s')
+          if [[ "$AUTHOR" == "github-actions[bot]" ]] || [[ "$MSG" == *"[skip ci]"* ]]; then
+            echo "should-release=false" >> $GITHUB_OUTPUT
+            echo "Skipping — bot commit or [skip ci]"
           else
-            echo "version-changed=false" >> $GITHUB_OUTPUT
+            echo "should-release=true" >> $GITHUB_OUTPUT
           fi
 
-  build:
-    name: Build Package
+  # ── Main release job ──
+  bump-and-release:
+    name: Bump Version, Tag, Build & Release
     runs-on: ubuntu-latest
-    needs: check-version-change
-    if: needs.check-version-change.outputs.version-changed == 'true'
+    needs: guard
+    if: needs.guard.outputs.should-release == 'true'
+    permissions:
+      contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -52,64 +66,99 @@ jobs:
       - name: Install build tools
         run: pip install build
 
-      - name: Build package
-        run: python -m build
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: dist
-          path: dist/
-
-  create-release:
-    name: Create GitHub Release
-    runs-on: ubuntu-latest
-    needs: [check-version-change, build]
-    if: needs.check-version-change.outputs.version-changed == 'true'
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v3
-        with:
-          name: dist
-          path: dist/
-
-      - name: Create tag
+      # ── Determine next version from conventional commits ──
+      - name: Determine version bump
+        id: version
         run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git tag "v${{ needs.check-version-change.outputs.new-version }}"
-          git push origin "v${{ needs.check-version-change.outputs.new-version }}"
+          CURRENT=$(cat VERSION | tr -d '[:space:]')
+          echo "current=$CURRENT" >> $GITHUB_OUTPUT
 
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+
+          # Commits since last tag (or all commits if no tag exists)
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$LAST_TAG" ]; then
+            COMMITS=$(git log ${LAST_TAG}..HEAD --pretty=format:"%s")
+          else
+            COMMITS=$(git log --pretty=format:"%s")
+          fi
+
+          # Conventional-commit bump rules
+          if echo "$COMMITS" | grep -qiE "^(BREAKING CHANGE|feat!|fix!)"; then
+            MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0; BUMP="major"
+          elif echo "$COMMITS" | grep -qiE "^feat"; then
+            MINOR=$((MINOR + 1)); PATCH=0; BUMP="minor"
+          else
+            PATCH=$((PATCH + 1)); BUMP="patch"
+          fi
+
+          NEW="${MAJOR}.${MINOR}.${PATCH}"
+          echo "new=$NEW" >> $GITHUB_OUTPUT
+          echo "bump=$BUMP" >> $GITHUB_OUTPUT
+          echo "::notice::Version bump: $CURRENT → $NEW ($BUMP)"
+
+      # ── Bail if the computed tag already exists ──
+      - name: Check for existing tag
+        id: tag-check
+        run: |
+          TAG="v${{ steps.version.outputs.new }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "::warning::Tag $TAG already exists — skipping release"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ── Update VERSION, commit, tag ──
+      - name: Commit version bump
+        if: steps.tag-check.outputs.exists == 'false'
+        run: |
+          echo "${{ steps.version.outputs.new }}" > VERSION
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add VERSION
+          git commit -m "chore: bump version to ${{ steps.version.outputs.new }} [skip ci]"
+          git push origin main
+
+      - name: Create and push tag
+        if: steps.tag-check.outputs.exists == 'false'
+        run: |
+          TAG="v${{ steps.version.outputs.new }}"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+
+      # ── Build wheel + sdist ──
+      - name: Build package
+        if: steps.tag-check.outputs.exists == 'false'
+        run: |
+          python -m build
+          echo "=== Built artifacts ==="
+          ls -lh dist/
+
+      # ── GitHub Release with auto-generated notes ──
       - name: Create GitHub Release
+        if: steps.tag-check.outputs.exists == 'false'
         uses: ncipollo/release-action@v1
         with:
-          tag: "v${{ needs.check-version-change.outputs.new-version }}"
+          tag: "v${{ steps.version.outputs.new }}"
+          name: "v${{ steps.version.outputs.new }}"
           artifacts: "dist/*"
           artifactErrorsFailBuild: true
           generateReleaseNotes: true
+          body: |
+            ## Release v${{ steps.version.outputs.new }}
 
-  publish-pypi:
-    name: Publish to PyPI
-    runs-on: ubuntu-latest
-    needs: [check-version-change, build]
-    if: needs.check-version-change.outputs.version-changed == 'true'
-    environment:
-      name: pypi
-      url: https://pypi.org/p/omnivector-embed
-    permissions:
-      id-token: write
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v3
-        with:
-          name: dist
-          path: dist/
+            **Version bump**: `${{ steps.version.outputs.current }}` → `${{ steps.version.outputs.new }}` (${{ steps.version.outputs.bump }})
 
+            ### Install
+            ```bash
+            pip install omnivector-embed==${{ steps.version.outputs.new }}
+            ```
+
+      # ── Publish to PyPI (trusted publishing) ──
       - name: Publish to PyPI
+        if: steps.tag-check.outputs.exists == 'false'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
+        continue-on-error: true  # Don't fail release if PyPI isn't configured yet
