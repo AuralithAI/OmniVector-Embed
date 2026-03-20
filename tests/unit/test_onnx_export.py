@@ -4,7 +4,7 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -42,7 +42,9 @@ class SimplePooling(nn.Module):
         super().__init__()
         self.linear = nn.Linear(hidden_dim, hidden_dim)
 
-    def forward(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor = None) -> torch.Tensor:
+    def forward(
+        self, hidden_states: torch.Tensor, attention_mask: torch.Tensor = None
+    ) -> torch.Tensor:
         # Use attention_mask for masked mean pooling so ONNX export retains it
         if attention_mask is not None:
             mask_f = (~attention_mask).unsqueeze(-1).float()
@@ -277,7 +279,7 @@ class TestONNXExporter:
         """Test ONNX output matches PyTorch output (cosine > 0.99)."""
         import onnxruntime as ort
 
-        from omnivector.export.onnx_exporter import ONNXExporter, OmniVectorONNXWrapper
+        from omnivector.export.onnx_exporter import OmniVectorONNXWrapper, ONNXExporter
 
         model = SimpleModel(256)
 

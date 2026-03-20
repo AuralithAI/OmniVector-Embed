@@ -122,7 +122,9 @@ class TestBidirectionalAttention:
         )
         logger.info(f"Causal control OK: token[0] delta = {delta:.2e}")
 
-    def test_bidirectional_all_positions_attend_globally(self, backbone: MinimalBidirectionalBackbone):
+    def test_bidirectional_all_positions_attend_globally(
+        self, backbone: MinimalBidirectionalBackbone
+    ):
         """Every position's hidden state should change when any other position changes."""
         base_ids = torch.tensor([[10, 20, 30, 40, 50]])
         mask = torch.ones(1, 5, dtype=torch.long)

@@ -4,12 +4,10 @@ Validates the new freeze_backbone parameter, context manager selection,
 and the unfreeze_backbone / freeze_backbone methods.
 """
 
-import contextlib
+from unittest.mock import MagicMock, patch
 
-import pytest
 import torch
 import torch.nn as nn
-from unittest.mock import MagicMock, patch
 
 
 class TestVisionEncoderFreezeBackbone:
@@ -83,9 +81,7 @@ class TestVisionEncoderFreezeBackbone:
         enc.eval()
 
         # Mock encode_image to return features
-        enc.vision_model.encode_image = MagicMock(
-            return_value=torch.randn(2, 1152)
-        )
+        enc.vision_model.encode_image = MagicMock(return_value=torch.randn(2, 1152))
 
         with torch.no_grad():
             out = enc(torch.randn(2, 3, 384, 384))
@@ -98,8 +94,10 @@ class TestVisionEncoderFreezeBackbone:
 
         # Use a real linear as encode_image for gradient tracking
         fake_encoder = nn.Linear(3 * 384 * 384, 1152)
+
         def encode_image(x):
             return fake_encoder(x.flatten(1))
+
         enc.vision_model.encode_image = encode_image
 
         images = torch.randn(2, 3, 384, 384)

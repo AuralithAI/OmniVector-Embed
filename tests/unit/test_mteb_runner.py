@@ -5,30 +5,23 @@ constants, BENCHMARK_TARGETS, and helper methods — all without requiring
 the heavy ``mteb`` library (mocked where needed).
 """
 
-import json
 import logging
 import sys
+from unittest.mock import MagicMock, Mock, patch
 
 import numpy as np
 import pytest
 import torch
-import torch.nn as nn
-from pathlib import Path
-from unittest.mock import Mock, MagicMock, patch
 
 from omnivector.eval.mteb_runner import (
-    MTEBRunner,
-    InternalEvaluator,
-    _MTEBModelWrapper,
-    RETRIEVAL_TASKS,
-    STS_TASKS,
-    CLUSTERING_TASKS,
-    PAIR_CLASSIFICATION_TASKS,
-    RERANKING_TASKS,
     ALL_TASK_SETS,
     BENCHMARK_TARGETS,
+    RETRIEVAL_TASKS,
+    STS_TASKS,
+    InternalEvaluator,
+    MTEBRunner,
+    _MTEBModelWrapper,
 )
-
 
 # ── Task-set constants ──────────────────────────────────────────────
 
@@ -42,8 +35,11 @@ class TestTaskSets:
 
     def test_all_task_sets_keys(self):
         assert set(ALL_TASK_SETS) == {
-            "retrieval", "sts", "clustering",
-            "pair_classification", "reranking",
+            "retrieval",
+            "sts",
+            "clustering",
+            "pair_classification",
+            "reranking",
         }
 
     def test_benchmark_targets_stages(self):
@@ -78,11 +74,14 @@ def _make_mock_model(embed_dim=128, seq_len=32):
     # tokenizer call itself.
     class _TokOutput:
         """Mimics a BatchEncoding that tracks batch size."""
+
         def __init__(self, batch_size, sl):
             self._bs = batch_size
             self._sl = sl
+
         def to(self, device):
             return self
+
         def __getitem__(self, key):
             return torch.ones(self._bs, self._sl, dtype=torch.long)
 

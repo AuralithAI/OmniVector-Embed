@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 class HardNegativeMiner:
     """Mine hard negatives using FAISS with positive-aware thresholding.
-    
+
     Implements the NV-Embed-v2 approach: select negatives with scores
     below a threshold relative to the positive score.
     """
@@ -26,7 +26,7 @@ class HardNegativeMiner:
         num_threads: Optional[int] = None,
     ):
         """Initialize FAISS index and parameters.
-        
+
         Args:
             corpus_embeddings: Embedding matrix of shape [num_corpus, embedding_dim].
             corpus_ids: List of corpus IDs corresponding to embeddings.
@@ -34,7 +34,7 @@ class HardNegativeMiner:
             num_negatives: Number of hard negatives to return per query.
             num_threads: Number of CPU threads for FAISS search. Defaults to
                 all available cores (``os.cpu_count()``).
-        
+
         Raises:
             ValueError: If embeddings dimensions mismatch or inputs are invalid.
         """
@@ -104,16 +104,16 @@ class HardNegativeMiner:
         return_top_k: int = 200,
     ) -> list[int]:
         """Mine hard negatives for a single query-positive pair.
-        
+
         Args:
             query_embedding: Query embedding of shape [embedding_dim].
             positive_id: ID of the positive corpus item.
             positive_score: Override score for the positive (for flexibility).
             return_top_k: Retrieve top-k candidates before threshold filtering.
-        
+
         Returns:
             List of hard negative corpus IDs (up to num_negatives).
-        
+
         Raises:
             ValueError: If query embedding dimension is invalid.
         """
@@ -151,16 +151,16 @@ class HardNegativeMiner:
         return_top_k: int = 200,
     ) -> list[list[int]]:
         """Mine hard negatives for a batch of query-positive pairs.
-        
+
         Args:
             query_embeddings: Embedding matrix of shape [batch_size, embedding_dim].
             positive_ids: List of positive corpus IDs.
             positive_scores: Optional array of positive scores.
             return_top_k: Retrieve top-k candidates per query.
-        
+
         Returns:
             List of lists, where each inner list contains hard negative IDs.
-        
+
         Raises:
             ValueError: If batch sizes don't match.
         """
@@ -184,7 +184,7 @@ class HardNegativeMiner:
         all_negatives: list[list[int]] = []
 
         # Process in chunks so we can log progress and avoid long blocking calls
-        chunk_size = max(1024, int(8192))
+        chunk_size = max(1024, 8192)
         num_chunks = (total + chunk_size - 1) // chunk_size
         start_time = time.time()
 
@@ -198,11 +198,7 @@ class HardNegativeMiner:
             for local_idx, (idx_list, dist_list) in enumerate(zip(indices, distances)):
                 i = s + local_idx
                 positive_id = positive_ids[i]
-                pos_score = (
-                    positive_scores[i]
-                    if positive_scores is not None
-                    else dist_list[0]
-                )
+                pos_score = positive_scores[i] if positive_scores is not None else dist_list[0]
                 threshold = self.threshold_ratio * pos_score
                 negatives: list[int] = []
 
@@ -222,7 +218,7 @@ class HardNegativeMiner:
             remaining = total - done
             eta = remaining * per_item
             logger.info(
-                f"HardNegativeMiner progress: chunk {ci+1}/{num_chunks} "
+                f"HardNegativeMiner progress: chunk {ci + 1}/{num_chunks} "
                 f"processed {done}/{total} queries — elapsed={elapsed:.1f}s ETA={eta:.1f}s"
             )
 

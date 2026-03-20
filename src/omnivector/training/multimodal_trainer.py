@@ -253,9 +253,7 @@ class MultimodalTrainer(OmniVectorTrainer):
             if model.audio_encoder is not None:
                 for param in model.audio_encoder.projection.parameters():
                     param.requires_grad = True
-                logger.info(
-                    f"Step {current_step}: Audio encoder projection unfrozen"
-                )
+                logger.info(f"Step {current_step}: Audio encoder projection unfrozen")
 
             self._vision_frozen = False
 

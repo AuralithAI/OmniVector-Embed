@@ -3,8 +3,9 @@
 import logging
 from typing import Optional
 
+import numpy as np
 import torch
-from transformers import TrainerCallback, TrainerState, TrainerControl
+from transformers import TrainerCallback, TrainerControl, TrainerState
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +100,7 @@ class HardNegativeRefreshCallback(TrainerCallback):
 
         all_embeddings = []
         for start in range(0, len(self.corpus_texts), self.encode_batch_size):
-            batch_texts = self.corpus_texts[start: start + self.encode_batch_size]
+            batch_texts = self.corpus_texts[start : start + self.encode_batch_size]
 
             tokens = self.tokenizer(
                 batch_texts,
@@ -148,9 +149,7 @@ class HardNegativeRefreshCallback(TrainerCallback):
             new_embeddings = self._encode_corpus(model)
             self.miner.corpus_embeddings = new_embeddings
             self.miner.index = self.miner._build_index()
-            logger.info(
-                f"FAISS index rebuilt with {len(new_embeddings)} fresh embeddings"
-            )
+            logger.info(f"FAISS index rebuilt with {len(new_embeddings)} fresh embeddings")
         else:
             # Fallback: rebuild index from whatever embeddings are cached
             logger.warning(
@@ -184,7 +183,7 @@ class LoggingCallback(TrainerCallback):
 
     def on_log(self, args, state: TrainerState, control: TrainerControl, logs=None, **kwargs):
         """Log metrics when trainer logs.
-        
+
         Args:
             args: Training arguments.
             state: Current trainer state.
@@ -208,7 +207,7 @@ class EarlyStoppingCallback(TrainerCallback):
 
     def __init__(self, patience: int = 3, min_delta: float = 1e-4):
         """Initialize callback.
-        
+
         Args:
             patience: Number of evaluations without improvement before stopping.
             min_delta: Minimum change to qualify as an improvement.
@@ -227,7 +226,7 @@ class EarlyStoppingCallback(TrainerCallback):
         **kwargs,
     ):
         """Check for early stopping criterion.
-        
+
         Args:
             args: Training arguments.
             state: Current trainer state.
@@ -249,9 +248,7 @@ class EarlyStoppingCallback(TrainerCallback):
             logger.info(f"New best loss: {self.best_loss:.4f}")
         else:
             self.patience_counter += 1
-            logger.info(
-                f"No improvement for {self.patience_counter}/{self.patience} evaluations"
-            )
+            logger.info(f"No improvement for {self.patience_counter}/{self.patience} evaluations")
 
             if self.patience_counter >= self.patience:
                 control.should_training_stop = True

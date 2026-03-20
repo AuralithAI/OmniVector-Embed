@@ -1,16 +1,15 @@
 """Unit tests for training callbacks."""
 
 import logging
+from unittest.mock import Mock
 
 import numpy as np
-import pytest
 import torch
-from unittest.mock import Mock, MagicMock, patch
 
 from omnivector.training.callbacks import (
+    EarlyStoppingCallback,
     HardNegativeRefreshCallback,
     LoggingCallback,
-    EarlyStoppingCallback,
 )
 
 
@@ -207,6 +206,7 @@ class TestLoggingCallback:
     def test_logs_loss_and_lr(self, caplog):
         """Test logging of loss and learning rate."""
         import logging
+
         caplog.set_level(logging.INFO)
 
         callback = LoggingCallback()
@@ -222,6 +222,7 @@ class TestLoggingCallback:
     def test_handles_missing_logs(self, caplog):
         """Test that callback handles None logs gracefully."""
         import logging
+
         caplog.set_level(logging.INFO)
 
         callback = LoggingCallback()
@@ -230,6 +231,7 @@ class TestLoggingCallback:
     def test_logs_only_when_loss_present(self, caplog):
         """Test that callback only logs when loss is present."""
         import logging
+
         caplog.set_level(logging.INFO)
 
         callback = LoggingCallback()
@@ -256,6 +258,7 @@ class TestEarlyStoppingCallback:
     def test_first_evaluation_sets_baseline(self, caplog):
         """Test that first evaluation sets baseline loss."""
         import logging
+
         caplog.set_level(logging.INFO)
 
         callback = EarlyStoppingCallback(patience=3, min_delta=1e-4)
@@ -273,6 +276,7 @@ class TestEarlyStoppingCallback:
     def test_improvement_resets_patience(self, caplog):
         """Test that improvement resets patience counter."""
         import logging
+
         caplog.set_level(logging.INFO)
 
         callback = EarlyStoppingCallback(patience=3, min_delta=1e-4)
@@ -291,6 +295,7 @@ class TestEarlyStoppingCallback:
     def test_no_improvement_increments_patience(self, caplog):
         """Test that no improvement increments patience counter."""
         import logging
+
         caplog.set_level(logging.INFO)
 
         callback = EarlyStoppingCallback(patience=3, min_delta=1e-4)
@@ -310,6 +315,7 @@ class TestEarlyStoppingCallback:
     def test_early_stopping_triggered(self, caplog):
         """Test that early stopping is triggered after patience exceeded."""
         import logging
+
         caplog.set_level(logging.INFO)
 
         callback = EarlyStoppingCallback(patience=2, min_delta=1e-4)

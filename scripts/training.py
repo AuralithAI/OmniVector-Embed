@@ -11,9 +11,9 @@ Usage:
     python scripts/training.py --config configs/stage2_generalist.yaml --resume checkpoints/stage1/checkpoint-final
 """
 
+import argparse
 import json
 import logging
-import argparse
 from pathlib import Path
 from typing import Optional
 
@@ -22,13 +22,12 @@ from transformers import TrainingArguments
 
 from omnivector.data.loaders import get_loader
 from omnivector.model.omnivector_model import OmniVectorModel
-from omnivector.training.trainer import OmniVectorTrainer
 from omnivector.training.callbacks import (
+    EarlyStoppingCallback,
     HardNegativeRefreshCallback,
     LoggingCallback,
-    EarlyStoppingCallback,
 )
-from omnivector.training.losses import MRLInfoNCELoss
+from omnivector.training.trainer import OmniVectorTrainer
 
 logger = logging.getLogger(__name__)
 
@@ -39,12 +38,12 @@ def load_training_arguments(
     resume_from_checkpoint: Optional[str] = None,
 ) -> TrainingArguments:
     """Load TrainingArguments from JSON (DeepSpeed) or YAML config.
-    
+
     Args:
         config_path: Path to DeepSpeed JSON or YAML training config.
         output_dir: Output directory for checkpoints.
         resume_from_checkpoint: Path to checkpoint to resume from.
-        
+
     Returns:
         HF TrainingArguments instance.
     """
@@ -163,13 +162,13 @@ def create_training_dataset(
     teacher_model: Optional[str] = None,
 ):
     """Load training dataset.
-    
+
     Args:
         dataset_name: Dataset identifier (msmarco, hotpotqa, etc.).
         split: Dataset split to load.
         max_samples: Limit dataset size (for testing).
         teacher_model: Teacher model path for hard negative mining.
-        
+
     Returns:
         List of training examples with hard negatives.
     """
@@ -179,8 +178,8 @@ def create_training_dataset(
 
     if teacher_model:
         logger.info(f"Mining hard negatives using teacher: {teacher_model}")
-        corpus = loader.load_corpus(split="corpus")
-        
+        loader.load_corpus(split="corpus")
+
     logger.info(f"Loaded {len(dataset)} training examples")
     return dataset
 
@@ -260,7 +259,9 @@ def main():
     )
 
     training_args = load_training_arguments(
-        args.config, str(output_dir), resume_from_checkpoint=args.resume,
+        args.config,
+        str(output_dir),
+        resume_from_checkpoint=args.resume,
     )
     logger.info(f"Training arguments: {training_args}")
     if training_args.resume_from_checkpoint:

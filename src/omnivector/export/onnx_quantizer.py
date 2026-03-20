@@ -78,8 +78,7 @@ class ONNXQuantizer:
         ratio = quantized_mb / original_mb * 100
 
         logger.info(
-            f"Quantization complete: {original_mb:.1f} MB -> {quantized_mb:.1f} MB "
-            f"({ratio:.1f}%)"
+            f"Quantization complete: {original_mb:.1f} MB -> {quantized_mb:.1f} MB ({ratio:.1f}%)"
         )
 
         return output_path

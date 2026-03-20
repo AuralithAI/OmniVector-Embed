@@ -18,35 +18,7 @@ jobs:
           sudo apt-get autoclean
           df -h
   format:
-    name: Code Formatting (Black)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.10"
-
-      - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install black
-
-      - name: Run black format check
-        run: black --check src/ tests/
-
-      - name: Cleanup after format check
-        if: always()
-        run: |
-          pip cache purge
-          rm -rf ~/.cache/pip || true
-          python -c "import gc; gc.collect()"
-          sudo apt-get clean
-          df -h
-
-  lint:
-    name: Lint & Format Check (Ruff)
+    name: Code Formatting (Ruff)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -63,6 +35,31 @@ jobs:
 
       - name: Run ruff format check
         run: ruff format --check src/ tests/
+
+      - name: Cleanup after format check
+        if: always()
+        run: |
+          pip cache purge
+          rm -rf ~/.cache/pip || true
+          python -c "import gc; gc.collect()"
+          sudo apt-get clean
+          df -h
+
+  lint:
+    name: Lint Check (Ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install ruff
 
       - name: Run ruff lint check
         run: ruff check src/ tests/

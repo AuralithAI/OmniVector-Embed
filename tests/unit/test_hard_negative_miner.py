@@ -16,9 +16,7 @@ class TestHardNegativeMiner:
         embedding_dim = 128
         num_corpus = 1000
 
-        corpus_embeddings = np.random.randn(num_corpus, embedding_dim).astype(
-            np.float32
-        )
+        corpus_embeddings = np.random.randn(num_corpus, embedding_dim).astype(np.float32)
         corpus_embeddings = corpus_embeddings / (
             np.linalg.norm(corpus_embeddings, axis=1, keepdims=True) + 1e-8
         )
@@ -48,9 +46,7 @@ class TestHardNegativeMiner:
         ids = list(range(50))  # Mismatch
 
         with pytest.raises(ValueError, match="must have same length"):
-            HardNegativeMiner(
-                corpus_embeddings=embeddings, corpus_ids=ids
-            )
+            HardNegativeMiner(corpus_embeddings=embeddings, corpus_ids=ids)
 
     def test_invalid_threshold_ratio(self):
         """Test initialization fails with invalid threshold_ratio."""
@@ -90,7 +86,7 @@ class TestHardNegativeMiner:
 
         negatives = miner.mine(embeddings[0], ids[1], positive_score=positive_score)
 
-        threshold = miner.threshold_ratio * positive_score
+        # Threshold is miner.threshold_ratio * positive_score
         assert len(negatives) <= 7
 
     def test_mine_batch_processing(self, setup_miner):
@@ -167,10 +163,10 @@ class TestHardNegativeMiner:
 
         batch_size = 5
         batch_queries = embeddings[:batch_size]
-        positive_ids_batch = ids[1:batch_size+1]
+        positive_ids_batch = ids[1 : batch_size + 1]
 
         batch_result = miner.mine_batch(batch_queries, positive_ids_batch)
 
         for i in range(batch_size):
-            single_result = miner.mine(embeddings[i], ids[i+1])
+            single_result = miner.mine(embeddings[i], ids[i + 1])
             assert single_result == batch_result[i]

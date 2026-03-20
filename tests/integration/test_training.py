@@ -13,8 +13,9 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Lightweight test doubles 
+# Lightweight test doubles
 # ---------------------------------------------------------------------------
+
 
 class SimpleBackbone(nn.Module):
     """Minimal backbone for integration tests."""
@@ -44,7 +45,9 @@ class SimplePooling(nn.Module):
         super().__init__()
         self.linear = nn.Linear(hidden_dim, hidden_dim)
 
-    def forward(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor = None) -> torch.Tensor:
+    def forward(
+        self, hidden_states: torch.Tensor, attention_mask: torch.Tensor = None
+    ) -> torch.Tensor:
         # Use attention_mask for masked mean pooling so ONNX export retains it
         if attention_mask is not None:
             mask_f = (~attention_mask).unsqueeze(-1).float()
@@ -174,7 +177,7 @@ class TestONNXParity:
         """Test ONNX model produces cosine similarity > 0.99 vs PyTorch for 50 random inputs."""
         import onnxruntime as ort
 
-        from omnivector.export.onnx_exporter import ONNXExporter, OmniVectorONNXWrapper
+        from omnivector.export.onnx_exporter import OmniVectorONNXWrapper, ONNXExporter
 
         torch.manual_seed(42)
         model = SimpleModel(hidden_dim=256)
@@ -198,13 +201,11 @@ class TestONNXParity:
             wrapper.eval()
 
             # Load ONNX session
-            session = ort.InferenceSession(
-                onnx_path, providers=["CPUExecutionProvider"]
-            )
+            session = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
 
             # Run 50 random inputs and check cosine parity
             cosine_sims = []
-            for i in range(50):
+            for _i in range(50):
                 seq_len = torch.randint(8, 64, (1,)).item()
                 input_ids = torch.randint(0, 1000, (1, seq_len))
                 attention_mask = torch.ones(1, seq_len, dtype=torch.long)
@@ -231,12 +232,9 @@ class TestONNXParity:
             min_sim = np.min(cosine_sims)
 
             assert min_sim > 0.99, (
-                f"ONNX parity too low: min cosine sim = {min_sim:.6f} "
-                f"(mean = {mean_sim:.6f})"
+                f"ONNX parity too low: min cosine sim = {min_sim:.6f} (mean = {mean_sim:.6f})"
             )
-            logger.info(
-                f"ONNX parity OK: mean={mean_sim:.6f}, min={min_sim:.6f} over 50 samples"
-            )
+            logger.info(f"ONNX parity OK: mean={mean_sim:.6f}, min={min_sim:.6f} over 50 samples")
 
     @pytest.mark.integration
     def test_onnx_quantized_parity(self):
@@ -246,7 +244,7 @@ class TestONNXParity:
         """
         import onnxruntime as ort
 
-        from omnivector.export.onnx_exporter import ONNXExporter, OmniVectorONNXWrapper
+        from omnivector.export.onnx_exporter import ONNXExporter
         from omnivector.export.onnx_quantizer import ONNXQuantizer
 
         torch.manual_seed(42)
@@ -270,12 +268,8 @@ class TestONNXParity:
             assert os.path.exists(int8_path)
 
             # Compare fp32 and int8
-            fp32_session = ort.InferenceSession(
-                fp32_path, providers=["CPUExecutionProvider"]
-            )
-            int8_session = ort.InferenceSession(
-                int8_path, providers=["CPUExecutionProvider"]
-            )
+            fp32_session = ort.InferenceSession(fp32_path, providers=["CPUExecutionProvider"])
+            int8_session = ort.InferenceSession(int8_path, providers=["CPUExecutionProvider"])
 
             cosine_sims = []
             for _ in range(20):
@@ -299,12 +293,9 @@ class TestONNXParity:
             min_sim = np.min(cosine_sims)
 
             assert min_sim > 0.95, (
-                f"Quantized parity too low: min cos sim = {min_sim:.6f} "
-                f"(mean = {mean_sim:.6f})"
+                f"Quantized parity too low: min cos sim = {min_sim:.6f} (mean = {mean_sim:.6f})"
             )
-            logger.info(
-                f"Int8 parity OK: mean={mean_sim:.6f}, min={min_sim:.6f} over 20 samples"
-            )
+            logger.info(f"Int8 parity OK: mean={mean_sim:.6f}, min={min_sim:.6f} over 20 samples")
 
 
 # ---------------------------------------------------------------------------

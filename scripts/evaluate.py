@@ -28,7 +28,6 @@ Usage::
 import argparse
 import json
 import logging
-import sys
 from pathlib import Path
 
 import torch
@@ -47,21 +46,21 @@ def parse_args() -> argparse.Namespace:
         type=str,
         required=True,
         help="Path to a trained checkpoint directory (containing model.pt) "
-             "or a HuggingFace model identifier.",
+        "or a HuggingFace model identifier.",
     )
     parser.add_argument(
         "--tasks",
         type=str,
         default="retrieval",
         help="Comma-separated task *types*: retrieval, sts, clustering, "
-             "pair_classification, reranking (default: retrieval).",
+        "pair_classification, reranking (default: retrieval).",
     )
     parser.add_argument(
         "--task-names",
         type=str,
         default=None,
         help="Comma-separated explicit MTEB task names (overrides --tasks). "
-             "Example: MSMARCO,NFCorpus,STSBenchmark",
+        "Example: MSMARCO,NFCorpus,STSBenchmark",
     )
     parser.add_argument(
         "--output-dir",
@@ -87,7 +86,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         choices=["stage1", "stage2", "stage3"],
         help="Training stage — used to check benchmark targets. "
-             "If omitted, target checking is skipped.",
+        "If omitted, target checking is skipped.",
     )
     parser.add_argument(
         "--lora",

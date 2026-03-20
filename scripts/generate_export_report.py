@@ -10,7 +10,6 @@ import argparse
 import hashlib
 import json
 import logging
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -73,30 +72,34 @@ def main() -> None:
     if not onnx_files:
         lines.append("| (no ONNX files found) | — | — |")
 
-    lines.extend([
-        "",
-        "## Model Details",
-        "",
-        "- **Architecture**: Mistral-7B bidirectional + Latent Attention Pooling",
-        "- **Embedding dimension**: 4096 (MRL: 512, 1024, 2048, 4096)",
-        "- **ONNX opset**: 17",
-        "- **Quantization**: Dynamic INT8 (MatMulConstBOnly)",
-        "",
-    ])
+    lines.extend(
+        [
+            "",
+            "## Model Details",
+            "",
+            "- **Architecture**: Mistral-7B bidirectional + Latent Attention Pooling",
+            "- **Embedding dimension**: 4096 (MRL: 512, 1024, 2048, 4096)",
+            "- **ONNX opset**: 17",
+            "- **Quantization**: Dynamic INT8 (MatMulConstBOnly)",
+            "",
+        ]
+    )
 
     # Include validation results if available
     validation_file = release_dir / "validation_results.json"
     if validation_file.exists():
         with open(validation_file) as vf:
             results = json.load(vf)
-        lines.extend([
-            "## Validation Results",
-            "",
-            f"- **Mean cosine similarity**: {results.get('mean_cosine_sim', 'N/A')}",
-            f"- **Min cosine similarity**: {results.get('min_cosine_sim', 'N/A')}",
-            f"- **Passed**: {results.get('passed', 'N/A')}",
-            "",
-        ])
+        lines.extend(
+            [
+                "## Validation Results",
+                "",
+                f"- **Mean cosine similarity**: {results.get('mean_cosine_sim', 'N/A')}",
+                f"- **Min cosine similarity**: {results.get('min_cosine_sim', 'N/A')}",
+                f"- **Passed**: {results.get('passed', 'N/A')}",
+                "",
+            ]
+        )
 
     report = "\n".join(lines) + "\n"
 

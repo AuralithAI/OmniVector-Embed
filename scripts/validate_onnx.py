@@ -12,8 +12,6 @@ import argparse
 import logging
 import sys
 
-import numpy as np
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -71,7 +69,9 @@ def main() -> None:
     logger.info(f"Loading ONNX model from {args.onnx_model}")
     validator = ONNXValidator(args.onnx_model)
 
-    logger.info(f"Running parity validation ({args.num_samples} samples, threshold={args.threshold})")
+    logger.info(
+        f"Running parity validation ({args.num_samples} samples, threshold={args.threshold})"
+    )
     result = validator.validate_parity(
         pytorch_model=model,
         num_samples=args.num_samples,
@@ -87,8 +87,7 @@ def main() -> None:
         logger.info(f"PASSED: All {args.num_samples} samples above threshold {args.threshold}")
     else:
         logger.error(
-            f"FAILED: min cosine sim {result['min_cosine_sim']:.6f} "
-            f"< threshold {args.threshold}"
+            f"FAILED: min cosine sim {result['min_cosine_sim']:.6f} < threshold {args.threshold}"
         )
         sys.exit(1)
 

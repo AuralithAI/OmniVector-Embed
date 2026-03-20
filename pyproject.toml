@@ -144,6 +144,7 @@ select = [
 ignore = [
     "E501",  # line too long
     "W191",  # indentation contains tabs
+    "C901",  # function too complex — advisory, not blocking
 ]
 
 [tool.ruff.lint.isort]
