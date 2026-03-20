@@ -1,21 +1,23 @@
 # -----------------------------------------------------------------------
 #  OmniVector-Embed — Release
 #
-#  Fires after CI passes on main (via workflow_run).
-#    1. Auto-increment patch tag from git tags (v0.1.0 → v0.1.1)
+#  On every push to main:
+#    1. Test (Python 3.10)
 #    2. Build sdist + wheel
-#    3. Publish to PyPI via OIDC trusted publisher
-#    4. Create GitHub Release with changelog + wheel assets
+#    3. Auto-increment patch tag (v0.1.0 -> v0.1.1)
+#    4. Publish to PyPI via OIDC trusted publisher
+#    5. Create GitHub Release with changelog + wheel assets
 #
 #  For major/minor bumps: manually push a tag, e.g. git tag v0.2.0
 # -----------------------------------------------------------------------
 name: Release
 
 on:
-  workflow_run:
-    workflows: ["CI - Lint, Type Check, Test"]
-    types: [completed]
+  push:
     branches: [main]
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
 
 permissions:
   contents: write
@@ -30,75 +32,86 @@ concurrency:
 
 jobs:
   # -----------------------------------------------------------------
-  #  1. Build
+  #  1. Test
+  # -----------------------------------------------------------------
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_DEFAULT }}
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install torch==2.3.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[test]"
+          pip install pytest-timeout
+
+      - name: Lint
+        run: ruff check src/ tests/
+
+      - name: Test
+        run: pytest tests/unit/ -v --tb=short -m 'not slow' -x
+        timeout-minutes: 15
+
+  # -----------------------------------------------------------------
+  #  2. Build
   # -----------------------------------------------------------------
   build:
     name: Build
+    needs: test
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success'
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
-      should-release: ${{ steps.skip.outputs.should-release }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Skip bot commits
-        id: skip
-        run: |
-          AUTHOR=$(git log -1 --pretty=format:'%an')
-          MSG=$(git log -1 --pretty=format:'%s')
-          if [[ "$AUTHOR" == "github-actions[bot]" ]] || [[ "$MSG" == *"[skip ci]"* ]]; then
-            echo "should-release=false" >> "$GITHUB_OUTPUT"
-            echo "Skipping — bot commit or [skip ci]"
-          else
-            echo "should-release=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - uses: actions/setup-python@v5
-        if: steps.skip.outputs.should-release == 'true'
         with:
           python-version: ${{ env.PYTHON_DEFAULT }}
 
       - name: Determine version
-        if: steps.skip.outputs.should-release == 'true'
         id: version
         run: |
-          # Auto-increment patch from the latest git tag
-          LATEST=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
-          if [ -z "$LATEST" ]; then
-            VERSION="0.1.0"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            VERSION="${TAG#v}"
           else
-            VER="${LATEST#v}"
-            MAJOR=$(echo "$VER" | cut -d. -f1)
-            MINOR=$(echo "$VER" | cut -d. -f2)
-            PATCH=$(echo "$VER" | cut -d. -f3)
-            VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
+            LATEST=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
+            if [ -z "$LATEST" ]; then
+              VERSION="0.1.0"
+            else
+              VER="${LATEST#v}"
+              MAJOR=$(echo "$VER" | cut -d. -f1)
+              MINOR=$(echo "$VER" | cut -d. -f2)
+              PATCH=$(echo "$VER" | cut -d. -f3)
+              VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
+            fi
+            TAG="v${VERSION}"
           fi
-          TAG="v${VERSION}"
 
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Version: ${VERSION}  Tag: ${TAG}"
 
       - name: Install build tools
-        if: steps.skip.outputs.should-release == 'true'
         run: pip install build twine
 
       - name: Build sdist + wheel
-        if: steps.skip.outputs.should-release == 'true'
         run: python -m build
 
       - name: Verify
-        if: steps.skip.outputs.should-release == 'true'
         run: twine check dist/*
 
       - name: Upload artifacts
-        if: steps.skip.outputs.should-release == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: dist
@@ -106,12 +119,11 @@ jobs:
           retention-days: 5
 
   # -----------------------------------------------------------------
-  #  2. Tag + Release + Publish
+  #  3. Tag + Release + Publish
   # -----------------------------------------------------------------
   release:
     name: Release
     needs: build
-    if: needs.build.outputs.should-release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -119,7 +131,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
           fetch-depth: 0
           fetch-tags: true
 
@@ -129,36 +140,26 @@ jobs:
           name: dist
           path: dist/
 
-      # -- Update VERSION file + create tag --
       - name: Create tag
+        if: startsWith(github.ref, 'refs/heads/')
         run: |
           TAG="${{ needs.build.outputs.tag }}"
-          VERSION="${{ needs.build.outputs.version }}"
-
           if git rev-parse "refs/tags/${TAG}" >/dev/null 2>&1; then
-            echo "Tag ${TAG} already exists — skipping"
+            echo "Tag ${TAG} already exists -- skipping"
           else
-            # Update VERSION file
-            echo "${VERSION}" > VERSION
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add VERSION
-            git commit -m "chore: bump version to ${VERSION} [skip ci]"
-            git push origin main
-
             git tag -a "${TAG}" -m "Release ${TAG}"
             git push origin "${TAG}"
             echo "Created tag ${TAG}"
           fi
 
-      # -- Publish to PyPI --
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           skip-existing: true
         continue-on-error: true
 
-      # -- Create GitHub Release --
       - name: Generate changelog
         id: changelog
         run: |
