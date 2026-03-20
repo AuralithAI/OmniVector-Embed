@@ -81,7 +81,7 @@ class WhisperAudioEncoder(nn.Module):
         self._freeze_encoder = freeze_encoder
 
         try:
-            from transformers import WhisperModel, WhisperFeatureExtractor
+            from transformers import WhisperFeatureExtractor, WhisperModel
 
             whisper_model = WhisperModel.from_pretrained(hf_name)
             self.whisper_encoder = whisper_model.encoder
@@ -110,8 +110,7 @@ class WhisperAudioEncoder(nn.Module):
 
         self._init_projection()
         logger.info(
-            f"WhisperAudioEncoder initialized: {model_name} "
-            f"({self.encoder_dim} → {embed_dim})"
+            f"WhisperAudioEncoder initialized: {model_name} " f"({self.encoder_dim} → {embed_dim})"
         )
 
     def _init_projection(self) -> None:

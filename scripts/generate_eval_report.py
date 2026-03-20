@@ -52,18 +52,22 @@ def main() -> None:
     # Collect all JSON result files
     result_files = sorted(results_dir.glob("*.json"))
     if not result_files:
-        lines.extend([
-            "No results found.",
-            "",
-            f"Searched directory: `{results_dir}`",
-        ])
+        lines.extend(
+            [
+                "No results found.",
+                "",
+                f"Searched directory: `{results_dir}`",
+            ]
+        )
     else:
-        lines.extend([
-            "## Task Results",
-            "",
-            "| Task | Type | Main Metric | Score |",
-            "|---|---|---|---|",
-        ])
+        lines.extend(
+            [
+                "## Task Results",
+                "",
+                "| Task | Type | Main Metric | Score |",
+                "|---|---|---|---|",
+            ]
+        )
 
         scores = []
         for result_file in result_files:
@@ -77,7 +81,9 @@ def main() -> None:
 
                 if main_score is not None:
                     scores.append(float(main_score))
-                    lines.append(f"| {task_name} | {task_type} | {main_score:.4f} | {main_score:.4f} |")
+                    lines.append(
+                        f"| {task_name} | {task_type} | {main_score:.4f} | {main_score:.4f} |"
+                    )
                 else:
                     lines.append(f"| {task_name} | {task_type} | — | — |")
             except (json.JSONDecodeError, KeyError) as e:
@@ -85,21 +91,25 @@ def main() -> None:
 
         if scores:
             avg = sum(scores) / len(scores)
-            lines.extend([
-                "",
-                f"**Average score**: {avg:.4f} (across {len(scores)} tasks)",
-                "",
-            ])
+            lines.extend(
+                [
+                    "",
+                    f"**Average score**: {avg:.4f} (across {len(scores)} tasks)",
+                    "",
+                ]
+            )
 
             # Targets
-            lines.extend([
-                "## Targets",
-                "",
-                "| Metric | Target | Achieved |",
-                "|---|---|---|",
-                f"| MTEB Average | ≥ 65.0 | {avg:.1f} {'✓' if avg >= 65.0 else '✗'} |",
-                "",
-            ])
+            lines.extend(
+                [
+                    "## Targets",
+                    "",
+                    "| Metric | Target | Achieved |",
+                    "|---|---|---|",
+                    f"| MTEB Average | ≥ 65.0 | {avg:.1f} {'✓' if avg >= 65.0 else '✗'} |",
+                    "",
+                ]
+            )
 
     report = "\n".join(lines) + "\n"
 

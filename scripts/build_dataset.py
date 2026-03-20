@@ -116,6 +116,7 @@ def load_multimodal_datasets(
         List of dicts with query, positive, domain, modality keys.
     """
     import time as _time
+
     from datasets import load_dataset
 
     multimodal_pairs = []
@@ -137,13 +138,15 @@ def load_multimodal_datasets(
             text = sample.get("TEXT", sample.get("caption", ""))
             url = sample.get("URL", sample.get("url", ""))
             if text and url:
-                multimodal_pairs.append({
-                    "query": text,
-                    "positive": text,
-                    "domain": "image_text",
-                    "modality": "image",
-                    "image_url": url,
-                })
+                multimodal_pairs.append(
+                    {
+                        "query": text,
+                        "positive": text,
+                        "domain": "image_text",
+                        "modality": "image",
+                        "image_url": url,
+                    }
+                )
                 count += 1
                 if count % _log_interval == 0:
                     _elapsed = _time.monotonic() - _t0
@@ -175,13 +178,15 @@ def load_multimodal_datasets(
             text = sample.get("caption", sample.get("name", ""))
             url = sample.get("contentUrl", sample.get("video", ""))
             if text and url:
-                multimodal_pairs.append({
-                    "query": text,
-                    "positive": text,
-                    "domain": "video_text",
-                    "modality": "video",
-                    "video_url": url,
-                })
+                multimodal_pairs.append(
+                    {
+                        "query": text,
+                        "positive": text,
+                        "domain": "video_text",
+                        "modality": "video",
+                        "video_url": url,
+                    }
+                )
                 count += 1
                 if count % _log_interval == 0:
                     _elapsed = _time.monotonic() - _t0
@@ -227,13 +232,15 @@ def load_multimodal_datasets(
                 labels = ", ".join(labels)
             video_id = sample.get("video_id", "")
             if labels:
-                multimodal_pairs.append({
-                    "query": labels,
-                    "positive": labels,
-                    "domain": "audio_text",
-                    "modality": "audio",
-                    "audio_id": video_id,
-                })
+                multimodal_pairs.append(
+                    {
+                        "query": labels,
+                        "positive": labels,
+                        "domain": "audio_text",
+                        "modality": "audio",
+                        "audio_id": video_id,
+                    }
+                )
                 count += 1
                 if count % _log_interval == 0:
                     _elapsed = _time.monotonic() - _t0
@@ -263,12 +270,14 @@ def load_multimodal_datasets(
             code = sample.get("func_code_string", "")
             lang = sample.get("language", "unknown")
             if docstring and code:
-                multimodal_pairs.append({
-                    "query": docstring,
-                    "positive": code,
-                    "domain": f"code_{lang}",
-                    "modality": "text",
-                })
+                multimodal_pairs.append(
+                    {
+                        "query": docstring,
+                        "positive": code,
+                        "domain": f"code_{lang}",
+                        "modality": "text",
+                    }
+                )
                 code_count += 1
             if (i + 1) % _log_interval == 0:
                 _elapsed = _time.monotonic() - _t0
@@ -333,18 +342,36 @@ def generate_synthetic_pairs(
     ]
 
     _ACTIONS = [
-        "sort a list", "parse JSON", "read a file", "connect to database",
-        "handle errors", "create REST API", "implement caching",
-        "validate input", "serialize data", "compress files",
-        "manage threads", "build a graph", "traverse a tree",
-        "implement pagination", "generate reports",
+        "sort a list",
+        "parse JSON",
+        "read a file",
+        "connect to database",
+        "handle errors",
+        "create REST API",
+        "implement caching",
+        "validate input",
+        "serialize data",
+        "compress files",
+        "manage threads",
+        "build a graph",
+        "traverse a tree",
+        "implement pagination",
+        "generate reports",
     ]
 
     _LANGUAGES = ["Python", "TypeScript", "Rust", "Go", "Java", "C++"]
 
     _PATTERNS = [
-        "observer", "factory", "singleton", "strategy", "decorator",
-        "adapter", "builder", "iterator", "state machine", "pipeline",
+        "observer",
+        "factory",
+        "singleton",
+        "strategy",
+        "decorator",
+        "adapter",
+        "builder",
+        "iterator",
+        "state machine",
+        "pipeline",
     ]
 
     _VOICEOVER_TEMPLATES = [
@@ -355,11 +382,20 @@ def generate_synthetic_pairs(
     ]
 
     _TOPICS = [
-        "neural network training", "Docker containerization",
-        "Kubernetes deployment", "CI/CD pipelines", "microservices",
-        "data preprocessing", "model quantization", "ONNX export",
-        "embedding models", "attention mechanisms", "vector databases",
-        "distributed training", "gradient checkpointing", "mixed precision",
+        "neural network training",
+        "Docker containerization",
+        "Kubernetes deployment",
+        "CI/CD pipelines",
+        "microservices",
+        "data preprocessing",
+        "model quantization",
+        "ONNX export",
+        "embedding models",
+        "attention mechanisms",
+        "vector databases",
+        "distributed training",
+        "gradient checkpointing",
+        "mixed precision",
     ]
 
     _PARAPHRASE_PAIRS = [
@@ -381,73 +417,96 @@ def generate_synthetic_pairs(
     pairs_per_domain = num_pairs // len(domains)
 
     for domain in domains:
-        for i in range(pairs_per_domain):
+        for _i in range(pairs_per_domain):
             if domain == "code_diagram":
                 tmpl_q, tmpl_p = _CODE_TEMPLATES[rng.integers(len(_CODE_TEMPLATES))]
                 action = _ACTIONS[rng.integers(len(_ACTIONS))]
                 lang = _LANGUAGES[rng.integers(len(_LANGUAGES))]
                 pattern = _PATTERNS[rng.integers(len(_PATTERNS))]
                 query = tmpl_q.format(
-                    action=action, lang=lang, pattern=pattern,
-                    source="CSV", target="JSON",
-                    operation=action, constraint="memory",
+                    action=action,
+                    lang=lang,
+                    pattern=pattern,
+                    source="CSV",
+                    target="JSON",
+                    operation=action,
+                    constraint="memory",
                 )
                 positive = tmpl_p.format(
-                    action=action, lang=lang, snippet=f"# {action}",
-                    pattern=pattern, description=f"Implementation of {action}",
-                    func_name=action.replace(" ", "_"), params="data",
+                    action=action,
+                    lang=lang,
+                    snippet=f"# {action}",
+                    pattern=pattern,
+                    description=f"Implementation of {action}",
+                    func_name=action.replace(" ", "_"),
+                    params="data",
                     body=f"return {action.replace(' ', '_')}(data)",
-                    source="CSV", target="JSON",
-                    technique="batching", metric="latency",
+                    source="CSV",
+                    target="JSON",
+                    technique="batching",
+                    metric="latency",
                 )
-                pairs.append({
-                    "query": query,
-                    "positive": positive,
-                    "domain": "code_diagram",
-                    "modality": "text",
-                })
+                pairs.append(
+                    {
+                        "query": query,
+                        "positive": positive,
+                        "domain": "code_diagram",
+                        "modality": "text",
+                    }
+                )
 
             elif domain == "voiceover_transcript":
-                tmpl_q, tmpl_p = _VOICEOVER_TEMPLATES[
-                    rng.integers(len(_VOICEOVER_TEMPLATES))
-                ]
+                tmpl_q, tmpl_p = _VOICEOVER_TEMPLATES[rng.integers(len(_VOICEOVER_TEMPLATES))]
                 topic = _TOPICS[rng.integers(len(_TOPICS))]
                 query = tmpl_q.format(
-                    topic=topic, tool=topic, feature=topic, concept=topic,
+                    topic=topic,
+                    tool=topic,
+                    feature=topic,
+                    concept=topic,
                 )
                 positive = tmpl_p.format(
-                    topic=topic, tool=topic, config="settings.yaml",
-                    feature=topic, scenario="edge cases",
-                    concept=topic, points="architecture and implementation",
+                    topic=topic,
+                    tool=topic,
+                    config="settings.yaml",
+                    feature=topic,
+                    scenario="edge cases",
+                    concept=topic,
+                    points="architecture and implementation",
                 )
-                pairs.append({
-                    "query": query,
-                    "positive": positive,
-                    "domain": "voiceover_transcript",
-                    "modality": "audio",
-                })
+                pairs.append(
+                    {
+                        "query": query,
+                        "positive": positive,
+                        "domain": "voiceover_transcript",
+                        "modality": "audio",
+                    }
+                )
 
             elif domain == "paraphrase_query":
-                tmpl_q, tmpl_p = _PARAPHRASE_PAIRS[
-                    rng.integers(len(_PARAPHRASE_PAIRS))
-                ]
+                tmpl_q, tmpl_p = _PARAPHRASE_PAIRS[rng.integers(len(_PARAPHRASE_PAIRS))]
                 topic_idx = rng.integers(len(_TOPICS))
                 concept = _TOPICS[topic_idx]
                 alt_idx = (topic_idx + 1) % len(_TOPICS)
                 alternative = _TOPICS[alt_idx]
                 query = tmpl_q.format(
-                    concept=concept, issue=concept, alternative=alternative,
+                    concept=concept,
+                    issue=concept,
+                    alternative=alternative,
                 )
                 positive = tmpl_p.format(
-                    concept=concept, mechanism="systematic processing",
-                    issue=concept, alternative=alternative,
+                    concept=concept,
+                    mechanism="systematic processing",
+                    issue=concept,
+                    alternative=alternative,
                 )
-                pairs.append({
-                    "query": query,
-                    "positive": positive,
-                    "domain": "paraphrase",
-                    "modality": "text",
-                })
+                pairs.append(
+                    {
+                        "query": query,
+                        "positive": positive,
+                        "domain": "paraphrase",
+                        "modality": "text",
+                    }
+                )
 
             elif domain == "code_docstring_aug":
                 action = _ACTIONS[rng.integers(len(_ACTIONS))]
@@ -462,24 +521,28 @@ def generate_synthetic_pairs(
                     f'    """\n'
                     f"    return process_{func}(data)"
                 )
-                pairs.append({
-                    "query": query,
-                    "positive": positive,
-                    "domain": f"code_{lang.lower()}",
-                    "modality": "text",
-                })
+                pairs.append(
+                    {
+                        "query": query,
+                        "positive": positive,
+                        "domain": f"code_{lang.lower()}",
+                        "modality": "text",
+                    }
+                )
 
     # Fill remaining pairs with random domain selection
     remaining = num_pairs - len(pairs)
     for _ in range(remaining):
         domain = domains[rng.integers(len(domains))]
         topic = _TOPICS[rng.integers(len(_TOPICS))]
-        pairs.append({
-            "query": f"Explain {topic}",
-            "positive": f"An overview of {topic} and its applications.",
-            "domain": domain,
-            "modality": "text",
-        })
+        pairs.append(
+            {
+                "query": f"Explain {topic}",
+                "positive": f"An overview of {topic} and its applications.",
+                "domain": domain,
+                "modality": "text",
+            }
+        )
 
     rng.shuffle(pairs)
     logger.info(f"Generated {len(pairs)} synthetic pairs across {len(domains)} domains")
@@ -509,7 +572,6 @@ def _generate_with_llm(
     """
     import requests
 
-    rng = np.random.default_rng(seed)
     pairs = []
     batch_size = 50  # Pairs per LLM request
 
@@ -568,12 +630,14 @@ def _generate_with_llm(
                     if isinstance(batch, list):
                         for item in batch:
                             if "query" in item and "positive" in item:
-                                pairs.append({
-                                    "query": item["query"],
-                                    "positive": item["positive"],
-                                    "domain": domain,
-                                    "modality": "text",
-                                })
+                                pairs.append(
+                                    {
+                                        "query": item["query"],
+                                        "positive": item["positive"],
+                                        "domain": domain,
+                                        "modality": "text",
+                                    }
+                                )
                                 generated += 1
                 except _json.JSONDecodeError:
                     logger.warning(f"Failed to parse LLM response for {domain}")
@@ -641,25 +705,27 @@ def load_custom_dataset(
                     try:
                         record = json.loads(line)
                     except json.JSONDecodeError:
-                        logger.warning(
-                            f"Skipping malformed JSON at {jsonl_file}:{line_num}"
-                        )
+                        logger.warning(f"Skipping malformed JSON at {jsonl_file}:{line_num}")
                         continue
 
                     # Validate minimum required fields
                     query = record.get("query", record.get("question", ""))
-                    positive = record.get("positive", record.get("answer", record.get("passage", "")))
+                    positive = record.get(
+                        "positive", record.get("answer", record.get("passage", ""))
+                    )
 
                     if not query or not positive:
                         continue
 
-                    pairs.append({
-                        "query": query,
-                        "positive": positive,
-                        "negatives": record.get("negatives", []),
-                        "domain": record.get("domain", f"custom_{jsonl_file.stem}"),
-                        "modality": record.get("modality", "text"),
-                    })
+                    pairs.append(
+                        {
+                            "query": query,
+                            "positive": positive,
+                            "negatives": record.get("negatives", []),
+                            "domain": record.get("domain", f"custom_{jsonl_file.stem}"),
+                            "modality": record.get("modality", "text"),
+                        }
+                    )
                     total_loaded += 1
 
         except OSError as e:
@@ -669,8 +735,7 @@ def load_custom_dataset(
             break
 
     logger.info(
-        f"Loaded {len(pairs)} custom pairs from {len(jsonl_files)} files "
-        f"in {custom_path}"
+        f"Loaded {len(pairs)} custom pairs from {len(jsonl_files)} files " f"in {custom_path}"
     )
     return pairs
 
@@ -824,13 +889,15 @@ def build_stage_dataset(
 
     all_records = []
     for pair in text_pairs:
-        all_records.append({
-            "query": pair.query,
-            "positive": pair.positive,
-            "negatives": getattr(pair, "negatives", []),
-            "domain": getattr(pair, "domain", "retrieval"),
-            "modality": "text",
-        })
+        all_records.append(
+            {
+                "query": pair.query,
+                "positive": pair.positive,
+                "negatives": getattr(pair, "negatives", []),
+                "domain": getattr(pair, "domain", "retrieval"),
+                "modality": "text",
+            }
+        )
 
     # Load multimodal datasets
     if multimodal:
@@ -842,7 +909,7 @@ def build_stage_dataset(
         all_records.extend(mm_pairs)
         save_dataset(mm_pairs, output_dir, "multimodal_pairs.jsonl")
 
-    # Generate synthetic data 
+    # Generate synthetic data
     if add_synthetic > 0:
         logger.info(f"Generating {add_synthetic} synthetic training pairs...")
         synthetic_pairs = generate_synthetic_pairs(num_pairs=add_synthetic)
@@ -882,8 +949,10 @@ def build_stage_dataset(
             dom = rec.get("domain", "unknown")
             domain_indices.setdefault(dom, []).append(i)
 
-        logger.info(f"Found {len(domain_indices)} domains: "
-                     f"{', '.join(f'{k}({len(v)})' for k, v in sorted(domain_indices.items(), key=lambda x: -len(x[1])))}")
+        logger.info(
+            f"Found {len(domain_indices)} domains: "
+            f"{', '.join(f'{k}({len(v)})' for k, v in sorted(domain_indices.items(), key=lambda x: -len(x[1])))}"
+        )
 
         extra_needed = target_size - len(all_records)
         n_domains = len(domain_indices)
@@ -913,11 +982,11 @@ def build_stage_dataset(
         # Fill the remainder from underrepresented domains
         still_needed = extra_needed - len(extra_records)
         if still_needed > 0:
-            logger.info(f"Filling {still_needed} remaining records from underrepresented domains...")
+            logger.info(
+                f"Filling {still_needed} remaining records from underrepresented domains..."
+            )
             # Weight towards smaller domains to improve balance
-            domain_weights = np.array([
-                1.0 / max(len(idxs), 1) for idxs in domain_indices.values()
-            ])
+            domain_weights = np.array([1.0 / max(len(idxs), 1) for idxs in domain_indices.values()])
             domain_weights /= domain_weights.sum()
             domain_names = list(domain_indices.keys())
 
@@ -944,6 +1013,7 @@ def build_stage_dataset(
 
     # Shuffle and save combined dataset
     import time as _time
+
     logger.info(f"Shuffling {len(all_records)} records...")
     _t0 = _time.monotonic()
     rng = np.random.default_rng(42)

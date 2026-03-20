@@ -8,10 +8,8 @@ import json
 import logging
 import os
 import tempfile
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import numpy as np
 import pytest
 import torch
 import torch.nn as nn
@@ -22,6 +20,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Test fixtures
 # ---------------------------------------------------------------------------
+
 
 class MockVisionEncoder(nn.Module):
     """Minimal vision encoder for testing."""
@@ -118,8 +117,7 @@ def sample_jsonl_dir():
     coco_data = {
         "images": [{"id": i, "file_name": f"COCO_{i:06d}.jpg"} for i in range(4)],
         "annotations": [
-            {"image_id": i, "caption": f"COCO caption for image {i}"}
-            for i in range(4)
+            {"image_id": i, "caption": f"COCO caption for image {i}"} for i in range(4)
         ],
     }
     with open(coco_file, "w") as f:
@@ -128,12 +126,14 @@ def sample_jsonl_dir():
     yield tmpdir
 
     import shutil
+
     shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
 # ImageTextLoader tests
 # ---------------------------------------------------------------------------
+
 
 class TestImageTextLoader:
     """Tests for ImageTextLoader."""
@@ -242,6 +242,7 @@ class TestVideoTextLoader:
 # MultimodalSample tests
 # ---------------------------------------------------------------------------
 
+
 class TestMultimodalSample:
     """Tests for MultimodalSample."""
 
@@ -288,6 +289,7 @@ class TestMultimodalSample:
 # MultimodalDataset tests
 # ---------------------------------------------------------------------------
 
+
 class TestMultimodalDataset:
     """Tests for MultimodalDataset."""
 
@@ -323,8 +325,12 @@ class TestMultimodalDataset:
 
         samples = [
             MultimodalSample(query_text="q1", positive_text="p1", modality=Modality.TEXT),
-            MultimodalSample(query_text="q2", positive_text="p2", modality=Modality.IMAGE, image_path="x.jpg"),
-            MultimodalSample(query_text="q3", positive_text="p3", modality=Modality.IMAGE, image_path="y.jpg"),
+            MultimodalSample(
+                query_text="q2", positive_text="p2", modality=Modality.IMAGE, image_path="x.jpg"
+            ),
+            MultimodalSample(
+                query_text="q3", positive_text="p3", modality=Modality.IMAGE, image_path="y.jpg"
+            ),
         ]
         ds = MultimodalDataset(samples=samples, tokenizer=mock_tokenizer)
         assert len(ds) == 3
@@ -333,6 +339,7 @@ class TestMultimodalDataset:
 # ---------------------------------------------------------------------------
 # MultimodalCollator tests
 # ---------------------------------------------------------------------------
+
 
 class TestMultimodalCollator:
     """Tests for MultimodalCollator."""
@@ -344,8 +351,14 @@ class TestMultimodalCollator:
 
         batch = [
             {
-                "query_tokens": {"input_ids": torch.randint(0, 100, (1, 16)), "attention_mask": torch.ones(1, 16, dtype=torch.long)},
-                "positive_tokens": {"input_ids": torch.randint(0, 100, (1, 16)), "attention_mask": torch.ones(1, 16, dtype=torch.long)},
+                "query_tokens": {
+                    "input_ids": torch.randint(0, 100, (1, 16)),
+                    "attention_mask": torch.ones(1, 16, dtype=torch.long),
+                },
+                "positive_tokens": {
+                    "input_ids": torch.randint(0, 100, (1, 16)),
+                    "attention_mask": torch.ones(1, 16, dtype=torch.long),
+                },
                 "negative_tokens": [],
                 "modality": "text",
                 "domain": "general",
@@ -367,8 +380,14 @@ class TestMultimodalCollator:
 
         batch = [
             {
-                "query_tokens": {"input_ids": torch.randint(0, 100, (1, 16)), "attention_mask": torch.ones(1, 16, dtype=torch.long)},
-                "positive_tokens": {"input_ids": torch.randint(0, 100, (1, 16)), "attention_mask": torch.ones(1, 16, dtype=torch.long)},
+                "query_tokens": {
+                    "input_ids": torch.randint(0, 100, (1, 16)),
+                    "attention_mask": torch.ones(1, 16, dtype=torch.long),
+                },
+                "positive_tokens": {
+                    "input_ids": torch.randint(0, 100, (1, 16)),
+                    "attention_mask": torch.ones(1, 16, dtype=torch.long),
+                },
                 "negative_tokens": [],
                 "modality": "image",
                 "domain": "image_text",
@@ -390,8 +409,14 @@ class TestMultimodalCollator:
 
         batch = [
             {
-                "query_tokens": {"input_ids": torch.randint(0, 100, (1, 16)), "attention_mask": torch.ones(1, 16, dtype=torch.long)},
-                "positive_tokens": {"input_ids": torch.randint(0, 100, (1, 16)), "attention_mask": torch.ones(1, 16, dtype=torch.long)},
+                "query_tokens": {
+                    "input_ids": torch.randint(0, 100, (1, 16)),
+                    "attention_mask": torch.ones(1, 16, dtype=torch.long),
+                },
+                "positive_tokens": {
+                    "input_ids": torch.randint(0, 100, (1, 16)),
+                    "attention_mask": torch.ones(1, 16, dtype=torch.long),
+                },
                 "negative_tokens": [],
                 "modality": "text",
                 "domain": "general",
@@ -399,8 +424,14 @@ class TestMultimodalCollator:
                 "video": None,
             },
             {
-                "query_tokens": {"input_ids": torch.randint(0, 100, (1, 16)), "attention_mask": torch.ones(1, 16, dtype=torch.long)},
-                "positive_tokens": {"input_ids": torch.randint(0, 100, (1, 16)), "attention_mask": torch.ones(1, 16, dtype=torch.long)},
+                "query_tokens": {
+                    "input_ids": torch.randint(0, 100, (1, 16)),
+                    "attention_mask": torch.ones(1, 16, dtype=torch.long),
+                },
+                "positive_tokens": {
+                    "input_ids": torch.randint(0, 100, (1, 16)),
+                    "attention_mask": torch.ones(1, 16, dtype=torch.long),
+                },
                 "negative_tokens": [],
                 "modality": "image",
                 "domain": "image_text",
@@ -421,11 +452,20 @@ class TestMultimodalCollator:
 
         collator = MultimodalCollator(tokenizer=mock_tokenizer, max_negatives=2)
 
-        neg = {"input_ids": torch.randint(0, 100, (1, 16)), "attention_mask": torch.ones(1, 16, dtype=torch.long)}
+        neg = {
+            "input_ids": torch.randint(0, 100, (1, 16)),
+            "attention_mask": torch.ones(1, 16, dtype=torch.long),
+        }
         batch = [
             {
-                "query_tokens": {"input_ids": torch.randint(0, 100, (1, 16)), "attention_mask": torch.ones(1, 16, dtype=torch.long)},
-                "positive_tokens": {"input_ids": torch.randint(0, 100, (1, 16)), "attention_mask": torch.ones(1, 16, dtype=torch.long)},
+                "query_tokens": {
+                    "input_ids": torch.randint(0, 100, (1, 16)),
+                    "attention_mask": torch.ones(1, 16, dtype=torch.long),
+                },
+                "positive_tokens": {
+                    "input_ids": torch.randint(0, 100, (1, 16)),
+                    "attention_mask": torch.ones(1, 16, dtype=torch.long),
+                },
                 "negative_tokens": [neg, neg],
                 "modality": "text",
                 "domain": "general",
@@ -442,6 +482,7 @@ class TestMultimodalCollator:
 # ---------------------------------------------------------------------------
 # CrossModalContrastiveLoss tests
 # ---------------------------------------------------------------------------
+
 
 class TestCrossModalContrastiveLoss:
     """Tests for CrossModalContrastiveLoss."""
@@ -527,6 +568,7 @@ class TestCrossModalContrastiveLoss:
 # MultimodalMRLLoss tests
 # ---------------------------------------------------------------------------
 
+
 class TestMultimodalMRLLoss:
     """Tests for combined MultimodalMRLLoss."""
 
@@ -582,6 +624,7 @@ class TestMultimodalMRLLoss:
 # ---------------------------------------------------------------------------
 # MultimodalTrainer tests
 # ---------------------------------------------------------------------------
+
 
 class TestMultimodalTrainer:
     """Tests for MultimodalTrainer.compute_loss."""
@@ -682,7 +725,7 @@ class TestMultimodalTrainer:
             "has_videos": False,
         }
 
-        loss = trainer.compute_loss(model, inputs)
+        trainer.compute_loss(model, inputs)
         assert "labels" not in inputs
 
     def test_compute_loss_with_negatives(self):

@@ -110,12 +110,10 @@ class _MTEBModelWrapper:
         self.model.eval()
         with torch.no_grad():
             for start in range(0, len(sentences), bs):
-                batch = sentences[start: start + bs]
+                batch = sentences[start : start + bs]
 
                 if self.model.tokenizer is None:
-                    raise RuntimeError(
-                        "Tokenizer not loaded — cannot encode text for MTEB."
-                    )
+                    raise RuntimeError("Tokenizer not loaded — cannot encode text for MTEB.")
 
                 tokens = self.model.tokenizer(
                     batch,
@@ -218,8 +216,7 @@ class MTEBRunner:
                     task_names.extend(ALL_TASK_SETS[tt_lower])
                 else:
                     logger.warning(
-                        f"Unknown task type '{tt}'.  "
-                        f"Choose from: {list(ALL_TASK_SETS)}"
+                        f"Unknown task type '{tt}'.  " f"Choose from: {list(ALL_TASK_SETS)}"
                     )
         else:
             # Default: retrieval only (fast)
@@ -253,7 +250,7 @@ class MTEBRunner:
                 metrics: dict[str, float] = {}
                 for result in task_results:
                     if hasattr(result, "scores"):
-                        for split_name, split_scores in result.scores.items():
+                        for _split_name, split_scores in result.scores.items():
                             for score_dict in split_scores:
                                 for k, v in score_dict.items():
                                     if isinstance(v, (int, float)):

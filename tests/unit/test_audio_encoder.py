@@ -8,11 +8,11 @@ Covers:
 - Modality.AUDIO enum and MultimodalSample.from_audio_text
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 import torch
 import torch.nn as nn
-from unittest.mock import MagicMock, patch
-
 
 # ── WhisperAudioEncoder Unit Tests ──
 
@@ -23,6 +23,7 @@ class TestWhisperAudioEncoder:
     def test_import(self):
         """Audio encoder module is importable."""
         from omnivector.model.audio_encoder import WhisperAudioEncoder
+
         assert WhisperAudioEncoder is not None
 
     def test_init_supported_models(self):
@@ -43,7 +44,9 @@ class TestWhisperAudioEncoder:
         """Projection MLP has correct input/output dimensions."""
         from omnivector.model.audio_encoder import WhisperAudioEncoder
 
-        with patch("omnivector.model.audio_encoder.WhisperAudioEncoder.__init__", return_value=None):
+        with patch(
+            "omnivector.model.audio_encoder.WhisperAudioEncoder.__init__", return_value=None
+        ):
             encoder = WhisperAudioEncoder.__new__(WhisperAudioEncoder)
 
         nn.Module.__init__(encoder)
@@ -71,7 +74,9 @@ class TestWhisperAudioEncoder:
         """Forward pass produces correct output shape with mocked Whisper."""
         from omnivector.model.audio_encoder import WhisperAudioEncoder
 
-        with patch("omnivector.model.audio_encoder.WhisperAudioEncoder.__init__", return_value=None):
+        with patch(
+            "omnivector.model.audio_encoder.WhisperAudioEncoder.__init__", return_value=None
+        ):
             encoder = WhisperAudioEncoder.__new__(WhisperAudioEncoder)
 
         nn.Module.__init__(encoder)
@@ -107,7 +112,9 @@ class TestWhisperAudioEncoder:
         """Forward without Whisper encoder raises RuntimeError."""
         from omnivector.model.audio_encoder import WhisperAudioEncoder
 
-        with patch("omnivector.model.audio_encoder.WhisperAudioEncoder.__init__", return_value=None):
+        with patch(
+            "omnivector.model.audio_encoder.WhisperAudioEncoder.__init__", return_value=None
+        ):
             encoder = WhisperAudioEncoder.__new__(WhisperAudioEncoder)
 
         nn.Module.__init__(encoder)
@@ -120,7 +127,9 @@ class TestWhisperAudioEncoder:
         """When encoder frozen, only projection params are trainable."""
         from omnivector.model.audio_encoder import WhisperAudioEncoder
 
-        with patch("omnivector.model.audio_encoder.WhisperAudioEncoder.__init__", return_value=None):
+        with patch(
+            "omnivector.model.audio_encoder.WhisperAudioEncoder.__init__", return_value=None
+        ):
             encoder = WhisperAudioEncoder.__new__(WhisperAudioEncoder)
 
         nn.Module.__init__(encoder)
@@ -139,7 +148,9 @@ class TestWhisperAudioEncoder:
         """unfreeze_encoder() makes all encoder params trainable."""
         from omnivector.model.audio_encoder import WhisperAudioEncoder
 
-        with patch("omnivector.model.audio_encoder.WhisperAudioEncoder.__init__", return_value=None):
+        with patch(
+            "omnivector.model.audio_encoder.WhisperAudioEncoder.__init__", return_value=None
+        ):
             encoder = WhisperAudioEncoder.__new__(WhisperAudioEncoder)
 
         nn.Module.__init__(encoder)
@@ -177,9 +188,9 @@ class TestOmniVectorModelAudio:
 
     def test_encode_audio_without_encoder_raises(self):
         """encode_audio raises RuntimeError when no audio encoder."""
-        from omnivector.model.omnivector_model import OmniVectorModel
         from omnivector.model.backbone import MistralEmbeddingBackbone
         from omnivector.model.latent_attention import LatentAttentionPooling
+        from omnivector.model.omnivector_model import OmniVectorModel
 
         with patch.object(MistralEmbeddingBackbone, "__init__", return_value=None):
             backbone = MistralEmbeddingBackbone.__new__(MistralEmbeddingBackbone)

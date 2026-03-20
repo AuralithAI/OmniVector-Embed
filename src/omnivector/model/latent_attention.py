@@ -141,9 +141,7 @@ class EagerMultiheadAttention(nn.Module):
         attn_output = torch.matmul(attn_weights, v)  # [batch, num_heads, L, head_dim]
 
         # Concatenate heads
-        attn_output = attn_output.transpose(1, 2).reshape(
-            batch_size, tgt_len, embed_dim
-        )
+        attn_output = attn_output.transpose(1, 2).reshape(batch_size, tgt_len, embed_dim)
 
         output = self.out_proj(attn_output)
         attn_weights_avg = attn_weights.mean(dim=1)  # [batch, L, L]
@@ -238,9 +236,9 @@ class EagerCrossAttention(nn.Module):
         src_len = key.size(1)
 
         # Separate projections from different sources
-        q = self.q_proj(query)   # [batch, L_q, E]   — from latents
-        k = self.k_proj(key)     # [batch, L_kv, E]  — from encoder
-        v = self.v_proj(value)   # [batch, L_kv, E]  — from encoder
+        q = self.q_proj(query)  # [batch, L_q, E]   — from latents
+        k = self.k_proj(key)  # [batch, L_kv, E]  — from encoder
+        v = self.v_proj(value)  # [batch, L_kv, E]  — from encoder
 
         # Reshape for multihead
         q = q.reshape(batch_size, tgt_len, self.num_heads, self.head_dim).transpose(1, 2)
@@ -276,9 +274,7 @@ class EagerCrossAttention(nn.Module):
         attn_output = torch.matmul(attn_weights, v)
 
         # Concatenate heads
-        attn_output = attn_output.transpose(1, 2).reshape(
-            batch_size, tgt_len, self.embed_dim
-        )
+        attn_output = attn_output.transpose(1, 2).reshape(batch_size, tgt_len, self.embed_dim)
 
         output = self.out_proj(attn_output)
         attn_weights_avg = attn_weights.mean(dim=1)

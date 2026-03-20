@@ -55,9 +55,7 @@ class VideoEncoder(nn.Module):
         self.embed_dim = embed_dim
 
         if pooling_method == "attention":
-            self.temporal_attention = EagerMultiheadAttention(
-                embed_dim, num_heads=8, dropout=0.0
-            )
+            self.temporal_attention = EagerMultiheadAttention(embed_dim, num_heads=8, dropout=0.0)
 
     def forward(self, frames: torch.Tensor) -> torch.Tensor:
         """

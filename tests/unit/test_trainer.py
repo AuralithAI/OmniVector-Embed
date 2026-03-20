@@ -1,7 +1,8 @@
 """Unit tests for training infrastructure."""
 
+from unittest.mock import Mock
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
 import torch
 
 from omnivector.training.trainer import OmniVectorTrainer
@@ -18,9 +19,7 @@ def _make_trainer(**overrides):
     trainer.args = overrides.get("args", Mock(output_dir="./checkpoints"))
     trainer.state = overrides.get("state", Mock(global_step=0))
     trainer.control = overrides.get("control", Mock(should_log=False, should_save=False))
-    trainer.optimizer = overrides.get(
-        "optimizer", Mock(param_groups=[{"lr": 1e-4}])
-    )
+    trainer.optimizer = overrides.get("optimizer", Mock(param_groups=[{"lr": 1e-4}]))
     trainer.train_dataset = overrides.get("train_dataset", [])
     return trainer
 
@@ -94,9 +93,7 @@ class TestOmniVectorTrainer:
         trainer.state.global_step = 1000
 
         trainer._save_checkpoint(model, None)
-        model.save_pretrained.assert_called_once_with(
-            f"{tmp_path}/checkpoint-1000"
-        )
+        model.save_pretrained.assert_called_once_with(f"{tmp_path}/checkpoint-1000")
 
     def test_multiple_checkpoint_saves(self, tmp_path):
         """Test sequential checkpoint saves."""

@@ -8,7 +8,7 @@ class TestDataLoaders:
 
     def test_get_loader_msmarco(self):
         """Test factory function returns MSMARCOLoader."""
-        from omnivector.data.loaders import get_loader, MSMARCOLoader
+        from omnivector.data.loaders import MSMARCOLoader, get_loader
 
         loader = get_loader("msmarco")
         assert isinstance(loader, MSMARCOLoader)
@@ -16,7 +16,7 @@ class TestDataLoaders:
 
     def test_get_loader_hotpotqa(self):
         """Test factory function returns HotpotQALoader."""
-        from omnivector.data.loaders import get_loader, HotpotQALoader
+        from omnivector.data.loaders import HotpotQALoader, get_loader
 
         loader = get_loader("hotpotqa")
         assert isinstance(loader, HotpotQALoader)
@@ -24,7 +24,7 @@ class TestDataLoaders:
 
     def test_get_loader_beir(self):
         """Test factory function returns BEIRLoader."""
-        from omnivector.data.loaders import get_loader, BEIRLoader
+        from omnivector.data.loaders import BEIRLoader, get_loader
 
         loader = get_loader("beir/nfcorpus")
         assert isinstance(loader, BEIRLoader)
@@ -101,9 +101,9 @@ class TestDataLoaders:
     def test_loader_names(self):
         """Test that loaders have correct names."""
         from omnivector.data.loaders.base import (
-            MSMARCOLoader,
-            HotpotQALoader,
             BEIRLoader,
+            HotpotQALoader,
+            MSMARCOLoader,
         )
 
         assert MSMARCOLoader().name == "msmarco"
@@ -134,17 +134,17 @@ class TestDataLoaders:
     def test_hotpotqa_loader_uses_canonical_repo_id(self):
         """Test HotpotQA loader references hotpotqa/hotpot_qa, not 'hotpotqa'."""
         import inspect
+
         from omnivector.data.loaders.base import HotpotQALoader
 
         source = inspect.getsource(HotpotQALoader.load)
         assert "hotpotqa/hotpot_qa" in source
-        assert 'load_dataset("hotpotqa",' not in source.replace(
-            "hotpotqa/hotpot_qa", ""
-        )
+        assert 'load_dataset("hotpotqa",' not in source.replace("hotpotqa/hotpot_qa", "")
 
     def test_hotpotqa_supporting_facts_dict_format(self):
         """Test HotpotQA loader parses dict-style supporting_facts correctly."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from omnivector.data.loaders.base import HotpotQALoader
 
         sample = {
@@ -167,8 +167,8 @@ class TestDataLoaders:
         mock_ds.__iter__ = MagicMock(return_value=iter([sample]))
         mock_ds.take = MagicMock(return_value=mock_ds)
 
-        loader = HotpotQALoader(max_samples=None, use_instruction_prefix=False)
-        with patch("omnivector.data.loaders.base.HotpotQALoader.load") as orig:
+        HotpotQALoader(max_samples=None, use_instruction_prefix=False)
+        with patch("omnivector.data.loaders.base.HotpotQALoader.load"):
             # Call the real method but with mocked dataset
             pass
 
@@ -181,12 +181,23 @@ class TestDataLoaders:
 
     def test_beir_load_titleless_corpus_uses_first_sentence(self):
         """Test BEIR loader extracts first sentence as pseudo-query for title-less entries."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from omnivector.data.loaders.base import BEIRLoader
 
         mock_rows = [
-            {"_id": "1", "title": "", "text": "First sentence here. Rest of the passage follows.", "metadata": ""},
-            {"_id": "2", "title": "", "text": "Another opening? Yes indeed more content.", "metadata": ""},
+            {
+                "_id": "1",
+                "title": "",
+                "text": "First sentence here. Rest of the passage follows.",
+                "metadata": "",
+            },
+            {
+                "_id": "2",
+                "title": "",
+                "text": "Another opening? Yes indeed more content.",
+                "metadata": "",
+            },
             {"_id": "3", "title": "", "text": "", "metadata": ""},
             {"_id": "4", "title": "Real Title", "text": "Passage body.", "metadata": ""},
         ]
@@ -210,7 +221,8 @@ class TestDataLoaders:
 
     def test_beir_load_titleless_no_sentence_boundary(self):
         """Test BEIR loader falls back to first 128 chars when no sentence boundary."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from omnivector.data.loaders.base import BEIRLoader
 
         long_text = "A" * 200

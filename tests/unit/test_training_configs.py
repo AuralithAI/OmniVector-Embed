@@ -17,7 +17,6 @@ from pathlib import Path
 
 import pytest
 
-
 # ── Resolve project root (tests/unit/ -> project root = 2 parents up) ──
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -116,19 +115,21 @@ class TestResumeSupport:
 
     def test_training_script_yaml_loading(self):
         import yaml
+
         from scripts.training import _load_yaml_training_args
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
-            yaml.dump({
-                "training_args": {
-                    "learning_rate": 1e-5,
-                    "max_steps": 100,
-                    "bf16": False,
-                    "fp16": False,
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(
+                {
+                    "training_args": {
+                        "learning_rate": 1e-5,
+                        "max_steps": 100,
+                        "bf16": False,
+                        "fp16": False,
+                    },
                 },
-            }, f)
+                f,
+            )
             config_path = f.name
 
         try:
@@ -140,24 +141,27 @@ class TestResumeSupport:
 
     def test_resume_cli_overrides_yaml(self):
         import yaml
+
         from scripts.training import _load_yaml_training_args
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
-            yaml.dump({
-                "training_args": {
-                    "learning_rate": 1e-5,
-                    "resume_from_checkpoint": "yaml_checkpoint",
-                    "bf16": False,
-                    "fp16": False,
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(
+                {
+                    "training_args": {
+                        "learning_rate": 1e-5,
+                        "resume_from_checkpoint": "yaml_checkpoint",
+                        "bf16": False,
+                        "fp16": False,
+                    },
                 },
-            }, f)
+                f,
+            )
             config_path = f.name
 
         try:
             args = _load_yaml_training_args(
-                config_path, "/tmp/output",
+                config_path,
+                "/tmp/output",
                 resume_from_checkpoint="cli_checkpoint",
             )
             assert args.resume_from_checkpoint == "cli_checkpoint"
@@ -196,7 +200,7 @@ class TestSyntheticDataGeneration:
         from scripts.build_dataset import generate_synthetic_pairs
 
         pairs = generate_synthetic_pairs(num_pairs=400, seed=42)
-        domains = set(p["domain"] for p in pairs)
+        domains = {p["domain"] for p in pairs}
         assert len(domains) >= 3
 
     def test_deterministic_with_seed(self):
@@ -302,10 +306,14 @@ class TestBuildDatasetFlags:
         original_argv = sys.argv
         sys.argv = [
             "build_dataset.py",
-            "--stage", "2",
-            "--output-dir", "/tmp/test",
-            "--add-synthetic", "1000",
-            "--add-custom", "/tmp/custom",
+            "--stage",
+            "2",
+            "--output-dir",
+            "/tmp/test",
+            "--add-synthetic",
+            "1000",
+            "--add-custom",
+            "/tmp/custom",
         ]
 
         try:

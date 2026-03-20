@@ -91,8 +91,12 @@ class TestEagerCrossAttentionForward:
         mask = torch.zeros(B, Lkv, dtype=torch.bool)
         mask[:, -16:] = True
         with torch.no_grad():
-            _, wt = attn(torch.randn(B, Lq, E), torch.randn(B, Lkv, E),
-                         torch.randn(B, Lkv, E), key_padding_mask=mask)
+            _, wt = attn(
+                torch.randn(B, Lq, E),
+                torch.randn(B, Lkv, E),
+                torch.randn(B, Lkv, E),
+                key_padding_mask=mask,
+            )
         assert wt[:, :, -16:].abs().max() < 1e-5
 
     def test_attention_weights_sum_to_one(self):
@@ -148,11 +152,13 @@ class TestLatentPoolingUsesCrossAttn:
 
     def test_pooling_cross_attn_type(self):
         from omnivector.model.latent_attention import LatentAttentionPooling
+
         pooling = LatentAttentionPooling(embed_dim=256, n_latents=16, num_heads=8)
         assert isinstance(pooling.cross_attn, EagerCrossAttention)
 
     def test_pooling_output_changes_with_hidden_states(self):
         from omnivector.model.latent_attention import LatentAttentionPooling
+
         pooling = LatentAttentionPooling(embed_dim=128, n_latents=8, num_heads=4)
         pooling.eval()
         with torch.no_grad():

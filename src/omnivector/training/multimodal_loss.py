@@ -44,9 +44,7 @@ class CrossModalContrastiveLoss(nn.Module):
 
         if learnable_temperature:
             # log(1/0.07) = 2.659
-            self.log_temperature = nn.Parameter(
-                torch.tensor(2.6593, dtype=torch.float32)
-            )
+            self.log_temperature = nn.Parameter(torch.tensor(2.6593, dtype=torch.float32))
         else:
             self.register_buffer(
                 "log_temperature",
@@ -187,7 +185,7 @@ class MultimodalMRLLoss(nn.Module):
             negative_embeddings=negative_embeddings,
         )
 
-        result = {k: v for k, v in text_result.items()}
+        result = dict(text_result.items())
         text_loss = text_result["loss"]
         if not isinstance(text_loss, torch.Tensor):
             text_loss = torch.tensor(text_loss, dtype=torch.float32)
@@ -230,6 +228,8 @@ class MultimodalMRLLoss(nn.Module):
             ).item()
 
         result["loss"] = total_loss
-        result["text_loss"] = text_loss.item() if isinstance(text_loss, torch.Tensor) else float(text_loss)
+        result["text_loss"] = (
+            text_loss.item() if isinstance(text_loss, torch.Tensor) else float(text_loss)
+        )
 
         return result

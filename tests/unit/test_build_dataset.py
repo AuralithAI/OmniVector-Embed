@@ -1,9 +1,6 @@
 """Unit tests for build_dataset domain-balanced upsampling (Fix 8)."""
 
 import json
-import logging
-from pathlib import Path
-from unittest.mock import patch, Mock
 
 import numpy as np
 import pytest
@@ -26,7 +23,7 @@ class TestDomainBalancedUpsampling:
         base_per_domain = extra_needed // n_domains
 
         extra_records = []
-        for dom, indices in domain_indices.items():
+        for _dom, indices in domain_indices.items():
             domain_quota = min(base_per_domain, len(indices) * 5)
             if domain_quota == 0:
                 continue
@@ -35,9 +32,7 @@ class TestDomainBalancedUpsampling:
 
         still_needed = extra_needed - len(extra_records)
         if still_needed > 0:
-            domain_weights = np.array([
-                1.0 / max(len(idxs), 1) for idxs in domain_indices.values()
-            ])
+            domain_weights = np.array([1.0 / max(len(idxs), 1) for idxs in domain_indices.values()])
             domain_weights /= domain_weights.sum()
             domain_names = list(domain_indices.keys())
             for _ in range(still_needed):
@@ -71,8 +66,8 @@ class TestDomainBalancedUpsampling:
         """With balanced input, upsampled result should stay ~balanced."""
         records = []
         for dom in ["a", "b", "c"]:
-            for i in range(100):
-                records.append({"query": f"q", "positive": f"p", "domain": dom, "modality": "text"})
+            for _i in range(100):
+                records.append({"query": "q", "positive": "p", "domain": dom, "modality": "text"})
         result = self._run_upsampling(records, 900)
 
         counts = {}
@@ -87,9 +82,9 @@ class TestDomainBalancedUpsampling:
         """A big domain should be capped at 5× its original size."""
         records = []
         # big domain: 100 records, small domain: 10 records
-        for i in range(100):
+        for _i in range(100):
             records.append({"query": "q", "positive": "p", "domain": "big", "modality": "text"})
-        for i in range(10):
+        for _i in range(10):
             records.append({"query": "q", "positive": "p", "domain": "small", "modality": "text"})
 
         result = self._run_upsampling(records, 1100)
@@ -103,9 +98,9 @@ class TestDomainBalancedUpsampling:
     def test_upsampling_small_domain_gets_boost(self):
         """Small domains get boosted via weighted fill."""
         records = []
-        for i in range(1000):
+        for _i in range(1000):
             records.append({"query": "q", "positive": "p", "domain": "big", "modality": "text"})
-        for i in range(10):
+        for _i in range(10):
             records.append({"query": "q", "positive": "p", "domain": "tiny", "modality": "text"})
 
         result = self._run_upsampling(records, 5000)
@@ -120,11 +115,13 @@ class TestGenerateSyntheticPairs:
 
     def test_generates_requested_count(self):
         from scripts.build_dataset import generate_synthetic_pairs
+
         pairs = generate_synthetic_pairs(num_pairs=100)
         assert len(pairs) == 100
 
     def test_pairs_have_required_keys(self):
         from scripts.build_dataset import generate_synthetic_pairs
+
         pairs = generate_synthetic_pairs(num_pairs=10)
         for p in pairs:
             assert "query" in p
@@ -134,12 +131,14 @@ class TestGenerateSyntheticPairs:
 
     def test_reproducible_with_seed(self):
         from scripts.build_dataset import generate_synthetic_pairs
+
         a = generate_synthetic_pairs(num_pairs=20, seed=123)
         b = generate_synthetic_pairs(num_pairs=20, seed=123)
         assert a == b
 
     def test_different_seeds_differ(self):
         from scripts.build_dataset import generate_synthetic_pairs
+
         a = generate_synthetic_pairs(num_pairs=20, seed=1)
         b = generate_synthetic_pairs(num_pairs=20, seed=2)
         assert a != b
@@ -167,13 +166,16 @@ class TestLoadCustomDataset:
         from scripts.build_dataset import load_custom_dataset
 
         f = tmp_path / "bad.jsonl"
-        f.write_text('{"query": "ok", "positive": "fine"}\nNOT JSON\n{"query": "q2", "positive": "p2"}\n')
+        f.write_text(
+            '{"query": "ok", "positive": "fine"}\nNOT JSON\n{"query": "q2", "positive": "p2"}\n'
+        )
 
         result = load_custom_dataset(str(tmp_path))
         assert len(result) == 2
 
     def test_missing_path_raises(self):
         from scripts.build_dataset import load_custom_dataset
+
         with pytest.raises(FileNotFoundError):
             load_custom_dataset("/nonexistent/path/xyz")
 

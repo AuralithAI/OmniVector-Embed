@@ -122,7 +122,9 @@ class TestBidirectionalAttention:
         )
         logger.info(f"Causal control OK: token[0] delta = {delta:.2e}")
 
-    def test_bidirectional_all_positions_attend_globally(self, backbone: MinimalBidirectionalBackbone):
+    def test_bidirectional_all_positions_attend_globally(
+        self, backbone: MinimalBidirectionalBackbone
+    ):
         """Every position's hidden state should change when any other position changes."""
         base_ids = torch.tensor([[10, 20, 30, 40, 50]])
         mask = torch.ones(1, 5, dtype=torch.long)
@@ -201,9 +203,9 @@ class TestBidirectionalAttention:
 
             # _update_causal_mask should return None (bidirectional)
             result = backbone.model._update_causal_mask()
-            assert result is None, (
-                "_update_causal_mask should return None for bidirectional attention"
-            )
+            assert (
+                result is None
+            ), "_update_causal_mask should return None for bidirectional attention"
 
         logger.info("Backbone _enable_bidirectional_attention verified")
 
@@ -216,9 +218,9 @@ class TestBidirectionalAttention:
             hidden_1 = backbone(input_ids, mask, causal=False)
             hidden_2 = backbone(input_ids, mask, causal=False)
 
-        assert torch.allclose(hidden_1, hidden_2, atol=1e-6), (
-            "Non-deterministic output detected for identical inputs"
-        )
+        assert torch.allclose(
+            hidden_1, hidden_2, atol=1e-6
+        ), "Non-deterministic output detected for identical inputs"
 
     def test_batch_consistency(self, backbone: MinimalBidirectionalBackbone):
         """Batched forward should match individual forward passes."""
@@ -232,9 +234,9 @@ class TestBidirectionalAttention:
             hidden_b = backbone(ids_b, mask[1:], causal=False)
             hidden_batch = backbone(ids_batch, mask, causal=False)
 
-        assert torch.allclose(hidden_batch[0], hidden_a[0], atol=1e-5), (
-            "Batch sample 0 differs from individual forward pass"
-        )
-        assert torch.allclose(hidden_batch[1], hidden_b[0], atol=1e-5), (
-            "Batch sample 1 differs from individual forward pass"
-        )
+        assert torch.allclose(
+            hidden_batch[0], hidden_a[0], atol=1e-5
+        ), "Batch sample 0 differs from individual forward pass"
+        assert torch.allclose(
+            hidden_batch[1], hidden_b[0], atol=1e-5
+        ), "Batch sample 1 differs from individual forward pass"

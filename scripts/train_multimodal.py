@@ -282,12 +282,14 @@ def main() -> None:
     if args.text_checkpoint:
         logger.info(f"Loading from checkpoint: {args.text_checkpoint}")
         model = OmniVectorModel.from_pretrained(
-            args.text_checkpoint, audio_encoder=audio_model_name,
+            args.text_checkpoint,
+            audio_encoder=audio_model_name,
         )
     else:
         logger.info("Initializing fresh model")
         model = OmniVectorModel.from_pretrained(
-            "mistralai/Mistral-7B-v0.1", audio_encoder=audio_model_name,
+            "mistralai/Mistral-7B-v0.1",
+            audio_encoder=audio_model_name,
         )
 
     tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-v0.1")
@@ -298,7 +300,9 @@ def main() -> None:
     samples = build_samples(args)
 
     if not samples:
-        logger.error("No training samples found. Provide --text-data, --image-data, or --video-data.")
+        logger.error(
+            "No training samples found. Provide --text-data, --image-data, or --video-data."
+        )
         sys.exit(1)
 
     dataset = MultimodalDataset(
@@ -337,7 +341,9 @@ def main() -> None:
         lr_scheduler_type=training_config.get("lr_scheduler_type", "cosine"),
         weight_decay=training_config.get("weight_decay", 0.01),
         bf16=training_config.get("bf16", False),
-        fp16=training_config.get("fp16", False) if not training_config.get("bf16", False) else False,
+        fp16=(
+            training_config.get("fp16", False) if not training_config.get("bf16", False) else False
+        ),
         gradient_checkpointing=training_config.get("gradient_checkpointing", True),
         logging_steps=training_config.get("logging_steps", 100),
         save_steps=training_config.get("save_steps", 1000),

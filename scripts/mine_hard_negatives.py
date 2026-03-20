@@ -16,12 +16,12 @@ logger = logging.getLogger(__name__)
 
 def encode_texts(texts: list[str], model_name: str, batch_size: int = 64) -> np.ndarray:
     """Encode texts with a teacher model.
-    
+
     Args:
         texts: List of text strings to encode.
         model_name: HuggingFace model ID for the teacher encoder.
         batch_size: Encoding batch size.
-        
+
     Returns:
         Numpy array of shape [num_texts, embed_dim].
     """
@@ -48,7 +48,7 @@ def mine_negatives(
     threshold_ratio: float = 0.95,
 ) -> list[list[int]]:
     """Mine hard negatives using FAISS.
-    
+
     Args:
         query_embeddings: Query embeddings [num_queries, dim].
         corpus_embeddings: Corpus embeddings [num_corpus, dim].
@@ -56,7 +56,7 @@ def mine_negatives(
         positive_ids: Positive document ID for each query.
         num_negatives: Number of hard negatives per query.
         threshold_ratio: Score threshold relative to positive score.
-    
+
     Returns:
         List of hard negative ID lists, one per query.
     """
@@ -147,10 +147,8 @@ def main():
     logger.info("Encoding queries...")
     query_embeddings = encode_texts(queries, args.teacher_model, args.batch_size)
 
-    positive_scores = np.array([
-        float(np.dot(query_embeddings[i], corpus_embeddings[0]))
-        for i in range(len(queries))
-    ], dtype=np.float32)
+    # Note: positive_scores (query·corpus dot products) are computed internally
+    # by mine_negatives via the HardNegativeMiner — no need to pre-compute here.
 
     logger.info("Mining hard negatives...")
     positive_ids = list(range(len(queries)))
