@@ -218,7 +218,7 @@ class HardNegativeMiner:
             remaining = total - done
             eta = remaining * per_item
             logger.info(
-                f"HardNegativeMiner progress: chunk {ci+1}/{num_chunks} "
+                f"HardNegativeMiner progress: chunk {ci + 1}/{num_chunks} "
                 f"processed {done}/{total} queries — elapsed={elapsed:.1f}s ETA={eta:.1f}s"
             )
 

@@ -116,9 +116,9 @@ class TestTrainingDryRun:
             logger.info(f"Step {step}: loss={loss.item():.4f}")
 
         # Loss at end should be lower than at start (allow some noise)
-        assert (
-            losses[-1] < losses[0]
-        ), f"Loss did not decrease: start={losses[0]:.4f}, end={losses[-1]:.4f}"
+        assert losses[-1] < losses[0], (
+            f"Loss did not decrease: start={losses[0]:.4f}, end={losses[-1]:.4f}"
+        )
 
     @pytest.mark.integration
     def test_data_loading(self):
@@ -232,7 +232,7 @@ class TestONNXParity:
             min_sim = np.min(cosine_sims)
 
             assert min_sim > 0.99, (
-                f"ONNX parity too low: min cosine sim = {min_sim:.6f} " f"(mean = {mean_sim:.6f})"
+                f"ONNX parity too low: min cosine sim = {min_sim:.6f} (mean = {mean_sim:.6f})"
             )
             logger.info(f"ONNX parity OK: mean={mean_sim:.6f}, min={min_sim:.6f} over 50 samples")
 
@@ -293,7 +293,7 @@ class TestONNXParity:
             min_sim = np.min(cosine_sims)
 
             assert min_sim > 0.95, (
-                f"Quantized parity too low: min cos sim = {min_sim:.6f} " f"(mean = {mean_sim:.6f})"
+                f"Quantized parity too low: min cos sim = {min_sim:.6f} (mean = {mean_sim:.6f})"
             )
             logger.info(f"Int8 parity OK: mean={mean_sim:.6f}, min={min_sim:.6f} over 20 samples")
 

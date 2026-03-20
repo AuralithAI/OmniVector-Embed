@@ -154,7 +154,7 @@ def load_multimodal_datasets(
                     _eta = (max_image_samples - count) / _rate if _rate > 0 else 0
                     logger.info(
                         f"LAION progress: {count}/{max_image_samples} "
-                        f"({100*count/max_image_samples:.1f}%) — "
+                        f"({100 * count / max_image_samples:.1f}%) — "
                         f"{_rate:.0f} samples/s, ETA={_eta:.0f}s"
                     )
         logger.info(f"Loaded {count} LAION image-text pairs")
@@ -194,7 +194,7 @@ def load_multimodal_datasets(
                     _eta = (max_video_samples - count) / _rate if _rate > 0 else 0
                     logger.info(
                         f"WebVid progress: {count}/{max_video_samples} "
-                        f"({100*count/max_video_samples:.1f}%) — "
+                        f"({100 * count / max_video_samples:.1f}%) — "
                         f"{_rate:.0f} samples/s, ETA={_eta:.0f}s"
                     )
         logger.info(f"Loaded {count} WebVid video-text pairs")
@@ -248,7 +248,7 @@ def load_multimodal_datasets(
                     _eta = (max_audio - count) / _rate if _rate > 0 else 0
                     logger.info(
                         f"AudioSet progress: {count}/{max_audio} "
-                        f"({100*count/max_audio:.1f}%) — "
+                        f"({100 * count / max_audio:.1f}%) — "
                         f"{_rate:.0f} samples/s, ETA={_eta:.0f}s"
                     )
         logger.info(f"Loaded {count} AudioSet audio-text pairs")
@@ -284,8 +284,8 @@ def load_multimodal_datasets(
                 _rate = (i + 1) / _elapsed if _elapsed > 0 else 0
                 _eta = (total_code - i - 1) / _rate if _rate > 0 else 0
                 logger.info(
-                    f"CodeSearchNet progress: {i+1}/{total_code} "
-                    f"({100*(i+1)/total_code:.1f}%) — "
+                    f"CodeSearchNet progress: {i + 1}/{total_code} "
+                    f"({100 * (i + 1) / total_code:.1f}%) — "
                     f"{_rate:.0f} rows/s, ETA={_eta:.0f}s"
                 )
         logger.info(f"Loaded {code_count} CodeSearchNet pairs (from {total_code} rows)")
@@ -734,9 +734,7 @@ def load_custom_dataset(
         if max_samples and total_loaded >= max_samples:
             break
 
-    logger.info(
-        f"Loaded {len(pairs)} custom pairs from {len(jsonl_files)} files " f"in {custom_path}"
-    )
+    logger.info(f"Loaded {len(pairs)} custom pairs from {len(jsonl_files)} files in {custom_path}")
     return pairs
 
 
@@ -831,8 +829,8 @@ def save_dataset(
                 _rate = (i + 1) / _elapsed if _elapsed > 0 else 0
                 _eta = (total - i - 1) / _rate if _rate > 0 else 0
                 logger.info(
-                    f"Saving {filename}: {i+1}/{total} "
-                    f"({100*(i+1)/total:.0f}%) — "
+                    f"Saving {filename}: {i + 1}/{total} "
+                    f"({100 * (i + 1) / total:.0f}%) — "
                     f"{_rate:.0f} records/s, ETA={_eta:.0f}s"
                 )
 
@@ -975,7 +973,7 @@ def build_stage_dataset(
                 logger.info(
                     f"Upsampling progress: domain {_domain_i}/{n_domains} "
                     f"({dom}) — {len(extra_records)}/{extra_needed} extra records "
-                    f"generated ({100*len(extra_records)/extra_needed:.1f}%) — "
+                    f"generated ({100 * len(extra_records) / extra_needed:.1f}%) — "
                     f"{_elapsed:.1f}s elapsed"
                 )
 
@@ -997,8 +995,8 @@ def build_stage_dataset(
                 extra_records.append(all_records[chosen_idx])
                 if (_fill_i + 1) % _log_interval == 0:
                     logger.info(
-                        f"Remainder fill: {_fill_i+1}/{still_needed} "
-                        f"({100*(_fill_i+1)/still_needed:.1f}%)"
+                        f"Remainder fill: {_fill_i + 1}/{still_needed} "
+                        f"({100 * (_fill_i + 1) / still_needed:.1f}%)"
                     )
 
         all_records.extend(extra_records)

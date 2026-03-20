@@ -215,9 +215,7 @@ class MTEBRunner:
                 if tt_lower in ALL_TASK_SETS:
                     task_names.extend(ALL_TASK_SETS[tt_lower])
                 else:
-                    logger.warning(
-                        f"Unknown task type '{tt}'.  " f"Choose from: {list(ALL_TASK_SETS)}"
-                    )
+                    logger.warning(f"Unknown task type '{tt}'.  Choose from: {list(ALL_TASK_SETS)}")
         else:
             # Default: retrieval only (fast)
             task_names = list(RETRIEVAL_TASKS)
@@ -352,8 +350,7 @@ class MTEBRunner:
                         outcomes[target_name] = passed
                         status = "PASS ✓" if passed else "FAIL ✗"
                         logger.info(
-                            f"Target {target_name}: {value:.4f} "
-                            f"(threshold {threshold}) — {status}"
+                            f"Target {target_name}: {value:.4f} (threshold {threshold}) — {status}"
                         )
                         found = True
                         break

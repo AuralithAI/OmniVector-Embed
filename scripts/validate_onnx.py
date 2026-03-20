@@ -87,8 +87,7 @@ def main() -> None:
         logger.info(f"PASSED: All {args.num_samples} samples above threshold {args.threshold}")
     else:
         logger.error(
-            f"FAILED: min cosine sim {result['min_cosine_sim']:.6f} "
-            f"< threshold {args.threshold}"
+            f"FAILED: min cosine sim {result['min_cosine_sim']:.6f} < threshold {args.threshold}"
         )
         sys.exit(1)
 

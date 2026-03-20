@@ -143,13 +143,11 @@ class ONNXValidator:
 
         if passed:
             logger.info(
-                f"Validation PASSED: mean={mean_sim:.6f}, min={min_sim:.6f} "
-                f"(threshold={threshold})"
+                f"Validation PASSED: mean={mean_sim:.6f}, min={min_sim:.6f} (threshold={threshold})"
             )
         else:
             logger.warning(
-                f"Validation FAILED: mean={mean_sim:.6f}, min={min_sim:.6f} "
-                f"(threshold={threshold})"
+                f"Validation FAILED: mean={mean_sim:.6f}, min={min_sim:.6f} (threshold={threshold})"
             )
 
         return result
