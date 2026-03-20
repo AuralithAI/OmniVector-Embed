@@ -9,7 +9,7 @@ Be respectful, inclusive, and professional in all interactions.
 ## Getting Started
 
 1. Fork the repository
-2. Clone locally: `git clone https://github.com/yourusername/omnivector-embed.git`
+2. Clone locally: `git clone https://github.com/AuralithAI/omnivector-embed.git`
 3. Create a virtual environment: `python -m venv venv && source venv/bin/activate`
 4. Install dev dependencies: `pip install -e ".[dev,vision]"`
 5. Set up pre-commit: `pre-commit install`
