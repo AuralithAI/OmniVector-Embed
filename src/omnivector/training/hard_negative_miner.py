@@ -150,27 +150,54 @@ class HardNegativeMiner:
                 f"positive_ids ({len(positive_ids)})"
             )
 
+        import time
+
         query_embeddings = query_embeddings.astype(np.float32)
-        distances, indices = self.index.search(query_embeddings, return_top_k)
 
-        all_negatives = []
-        for i, (idx_list, dist_list) in enumerate(zip(indices, distances)):
-            positive_id = positive_ids[i]
-            pos_score = (
-                positive_scores[i]
-                if positive_scores is not None
-                else dist_list[0]
+        total = len(query_embeddings)
+        all_negatives: list[list[int]] = []
+
+        # Process in chunks so we can log progress and avoid long blocking calls
+        chunk_size = max(1024, int(8192))
+        num_chunks = (total + chunk_size - 1) // chunk_size
+        start_time = time.time()
+
+        for ci in range(num_chunks):
+            s = ci * chunk_size
+            e = min(total, s + chunk_size)
+            q_chunk = query_embeddings[s:e]
+
+            distances, indices = self.index.search(q_chunk, return_top_k)
+
+            for local_idx, (idx_list, dist_list) in enumerate(zip(indices, distances)):
+                i = s + local_idx
+                positive_id = positive_ids[i]
+                pos_score = (
+                    positive_scores[i]
+                    if positive_scores is not None
+                    else dist_list[0]
+                )
+                threshold = self.threshold_ratio * pos_score
+                negatives: list[int] = []
+
+                for idx, distance in zip(idx_list, dist_list):
+                    corpus_id = self.corpus_ids[idx]
+                    if corpus_id == positive_id:
+                        continue
+                    if distance < threshold and len(negatives) < self.num_negatives:
+                        negatives.append(corpus_id)
+
+                all_negatives.append(negatives)
+
+            # Progress logging
+            elapsed = time.time() - start_time
+            done = e
+            per_item = elapsed / max(1, done)
+            remaining = total - done
+            eta = remaining * per_item
+            logger.info(
+                f"HardNegativeMiner progress: chunk {ci+1}/{num_chunks} "
+                f"processed {done}/{total} queries — elapsed={elapsed:.1f}s ETA={eta:.1f}s"
             )
-            threshold = self.threshold_ratio * pos_score
-            negatives = []
-
-            for idx, distance in zip(idx_list, dist_list):
-                corpus_id = self.corpus_ids[idx]
-                if corpus_id == positive_id:
-                    continue
-                if distance < threshold and len(negatives) < self.num_negatives:
-                    negatives.append(corpus_id)
-
-            all_negatives.append(negatives)
 
         return all_negatives
