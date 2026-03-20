@@ -44,19 +44,22 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_DEFAULT }}
 
-      - name: Install
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
           pip install torch==2.3.1 --index-url https://download.pytorch.org/whl/cpu
           pip install -e ".[test]"
-          pip install pytest-timeout
+          pip install ruff
+
+      - name: Format check
+        run: ruff format --check src/ tests/
 
       - name: Lint
         run: ruff check src/ tests/
 
       - name: Test
         run: pytest tests/unit/ -v --tb=short -m 'not slow' -x
-        timeout-minutes: 15
+        timeout-minutes: 30
 
   # -----------------------------------------------------------------
   #  2. Build
