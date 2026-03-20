@@ -9,6 +9,13 @@ on:
     types: [completed]
     branches: [main]
 
+# Serialize releases — if two CI runs finish close together, the second
+# release waits for the first to complete instead of racing on version
+# bumps and tags.
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
 jobs:
   # ── Only proceed if CI succeeded ──
   guard:
@@ -51,16 +58,33 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      # ── Bail if main has advanced past the commit CI validated ──
+      - name: Check commit is still at main tip
+        id: freshness
+        run: |
+          git fetch origin main
+          MAIN_TIP=$(git rev-parse origin/main)
+          CI_SHA="${{ github.event.workflow_run.head_sha }}"
+          if [ "$MAIN_TIP" != "$CI_SHA" ]; then
+            echo "::warning::main has advanced ($MAIN_TIP) past CI commit ($CI_SHA) — skipping release"
+            echo "stale=true" >> $GITHUB_OUTPUT
+          else
+            echo "stale=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Set up Python
+        if: steps.freshness.outputs.stale != 'true'
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
 
       - name: Install build tools
+        if: steps.freshness.outputs.stale != 'true'
         run: pip install build
 
       # ── Determine next version from conventional commits ──
       - name: Determine version bump
+        if: steps.freshness.outputs.stale != 'true'
         id: version
         run: |
           CURRENT=$(cat VERSION | tr -d '[:space:]')
@@ -92,6 +116,7 @@ jobs:
 
       # ── Bail if the computed tag already exists ──
       - name: Check for existing tag
+        if: steps.freshness.outputs.stale != 'true'
         id: tag-check
         run: |
           TAG="v${{ steps.version.outputs.new }}"
@@ -104,7 +129,7 @@ jobs:
 
       # ── Update VERSION, commit, tag ──
       - name: Commit version bump
-        if: steps.tag-check.outputs.exists == 'false'
+        if: steps.freshness.outputs.stale != 'true' && steps.tag-check.outputs.exists == 'false'
         run: |
           echo "${{ steps.version.outputs.new }}" > VERSION
           git config user.name "github-actions[bot]"
@@ -114,7 +139,7 @@ jobs:
           git push origin main
 
       - name: Create and push tag
-        if: steps.tag-check.outputs.exists == 'false'
+        if: steps.freshness.outputs.stale != 'true' && steps.tag-check.outputs.exists == 'false'
         run: |
           TAG="v${{ steps.version.outputs.new }}"
           git tag -a "$TAG" -m "Release $TAG"
@@ -122,7 +147,7 @@ jobs:
 
       # ── Build wheel + sdist ──
       - name: Build package
-        if: steps.tag-check.outputs.exists == 'false'
+        if: steps.freshness.outputs.stale != 'true' && steps.tag-check.outputs.exists == 'false'
         run: |
           python -m build
           echo "=== Built artifacts ==="
@@ -130,7 +155,7 @@ jobs:
 
       # ── GitHub Release with auto-generated notes ──
       - name: Create GitHub Release
-        if: steps.tag-check.outputs.exists == 'false'
+        if: steps.freshness.outputs.stale != 'true' && steps.tag-check.outputs.exists == 'false'
         uses: ncipollo/release-action@v1
         with:
           tag: "v${{ steps.version.outputs.new }}"
@@ -150,7 +175,7 @@ jobs:
 
       # ── Publish to PyPI (trusted publishing) ──
       - name: Publish to PyPI
-        if: steps.tag-check.outputs.exists == 'false'
+        if: steps.freshness.outputs.stale != 'true' && steps.tag-check.outputs.exists == 'false'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
