@@ -4,7 +4,6 @@ Validates the new freeze_backbone parameter, context manager selection,
 and the unfreeze_backbone / freeze_backbone methods.
 """
 
-
 from unittest.mock import MagicMock, patch
 
 import torch
