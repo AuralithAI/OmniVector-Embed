@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "omnivector-embed"
 version = "0.1.0"
 description = "Production-grade multimodal embedding model with ONNX export and int8 quantization"
-readme = "README.md"
+readme = "PYPI_README.md"
 license = {text = "Apache-2.0"}
 authors = [
     {name = "AuralithAI"}
