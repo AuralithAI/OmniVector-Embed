@@ -199,27 +199,22 @@ def load_multimodal_datasets(
     # AudioSet (audio-text) — load metadata only, skip audio decoding
     try:
         logger.info("Loading AudioSet (30k samples)...")
-        # Use streaming to avoid triggering audio decoding (torchcodec)
-        # We only need labels and video_id, not the actual audio bytes
+        # The agkphysics/AudioSet dataset has an Audio() feature that triggers
+        # torchcodec loading even in streaming mode. We disable decoding by
+        # casting the audio column to a plain string/null before iteration.
+        from datasets import Audio as _AudioFeature
+
         audioset = load_dataset(
             "agkphysics/AudioSet",
             split="train",
             streaming=True,
         )
-        # Remove the audio column to prevent torchcodec decoding.
-        # For streaming datasets, column_names may be available or not.
-        try:
-            cols = audioset.column_names
-            if "audio" in cols:
-                audioset = audioset.remove_columns(["audio"])
-                logger.info("Removed 'audio' column to skip decoding")
-        except Exception:
-            # If column_names isn't available, select only needed columns
-            try:
-                audioset = audioset.select_columns(["human_labels", "video_id"])
-                logger.info("Selected metadata-only columns")
-            except Exception:
-                logger.info("Could not filter columns, will iterate raw")
+        # Disable audio decoding by casting audio feature to None/removing it
+        # This must happen BEFORE iteration to prevent torchcodec init
+        audioset = audioset.cast_column("audio", _AudioFeature(decode=False))
+        audioset = audioset.remove_columns(["audio"])
+        logger.info("Disabled audio decoding and removed audio column")
+
         count = 0
         _t0 = _time.monotonic()
         _log_interval = 5_000
