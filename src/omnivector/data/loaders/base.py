@@ -91,14 +91,26 @@ class MSMARCOLoader(BaseDataLoader):
         return pairs
 
     def load_corpus(self) -> dict[int, str]:
-        """Load MS MARCO corpus for negative mining."""
+        """Load MS MARCO corpus for negative mining.
+
+        MS MARCO v2.1 does not have a dedicated ``corpus`` split.
+        Passages are extracted from the ``train`` split's ``passages``
+        field and de-duplicated.
+        """
         from datasets import load_dataset
 
-        corpus_dataset = load_dataset("ms_marco", "v2.1", split="corpus")
+        dataset = load_dataset("ms_marco", "v2.1", split="train")
         corpus = {}
+        seen: set[str] = set()
+        idx = 0
 
-        for idx, sample in enumerate(corpus_dataset):
-            corpus[idx] = sample["passage_text"]
+        for sample in dataset:
+            for passage_text in sample["passages"]["passage_text"]:
+                text = passage_text.strip()
+                if text and text not in seen:
+                    corpus[idx] = text
+                    seen.add(text)
+                    idx += 1
 
         logger.info(f"Loaded {len(corpus)} MS MARCO corpus items")
         return corpus
