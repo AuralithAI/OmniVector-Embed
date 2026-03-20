@@ -204,6 +204,11 @@ class BEIRLoader(BaseDataLoader):
     # Benchmarks whose Hub repos already have auto-converted parquet
     _PARQUET_BENCHMARKS = {"nfcorpus"}
 
+    # Benchmarks whose standard corpus repo is unavailable — fall back
+    # to the ``BeIR/<name>-generated-queries`` variant which has
+    # (id, title, text, query) columns.
+    _GENERATED_QUERIES_BENCHMARKS = {"bioasq"}
+
     def __init__(
         self,
         benchmark: str = "nfcorpus",
@@ -240,6 +245,17 @@ class BEIRLoader(BaseDataLoader):
             "trec-covid",
             "dbpedia-entity",
             "bioasq",
+            "fever",
+            "climate-fever",
+            "scidocs",
+            "quora",
+            "nq",
+            "hotpotqa",
+            "msmarco",
+            "cqadupstack",
+            "signal1m",
+            "robust04",
+            "trec-news",
         }
         if self.benchmark not in valid:
             raise ValueError(
@@ -248,10 +264,18 @@ class BEIRLoader(BaseDataLoader):
             )
 
     def _load_corpus_dataset(self):
-        """Load the corpus split, handling both parquet and legacy repos."""
+        """Load the corpus split, handling parquet, legacy, and generated-queries repos."""
         from datasets import load_dataset
 
         dataset_name = f"BeIR/{self.benchmark}"
+
+        # Generated-queries repos: single table with (query, text, title)
+        if self.benchmark in self._GENERATED_QUERIES_BENCHMARKS:
+            gq_name = f"BeIR/{self.benchmark}-generated-queries"
+            logger.info(
+                f"Using generated-queries variant: {gq_name}"
+            )
+            return load_dataset(gq_name, split="train")
 
         if self.benchmark in self._PARQUET_BENCHMARKS:
             # Parquet repos: config="corpus", split="corpus"
@@ -282,36 +306,49 @@ class BEIRLoader(BaseDataLoader):
     def load(self) -> list[EmbeddingPair]:
         """Load BEIR dataset pairs from corpus.
 
-        Uses ``title → text`` when a title is available.  For title-less
-        corpora (e.g. FiQA) the first sentence of the text is extracted as
-        a pseudo-query and the full text serves as the positive passage.
+        For generated-queries variants the explicit ``query`` column is
+        used directly.  For standard corpora, ``title → text`` is used
+        when a title is available; otherwise the first sentence of the
+        text is extracted as a pseudo-query.
         """
         dataset = self._load_corpus_dataset()
 
         if self.max_samples:
             dataset = dataset.take(self.max_samples)
 
+        # Detect if dataset has an explicit query column (generated-queries)
+        has_query_col = "query" in (
+            dataset.column_names
+            if hasattr(dataset, "column_names")
+            else (dataset.features or {})
+        )
+
         pairs = []
         for sample in dataset:
-            title = (sample.get("title", "") or "").strip()
             passage = (sample.get("text", "") or "").strip()
-
             if not passage:
                 continue
 
-            if title:
-                query = title
-            else:
-                for sep in (". ", ".\n", "? ", "!\n"):
-                    idx = passage.find(sep)
-                    if idx != -1:
-                        query = passage[: idx + 1].strip()
-                        break
-                else:
-                    query = passage[:128].strip()
+            # Prefer explicit query column (generated-queries datasets)
+            explicit_query = (sample.get("query", "") or "").strip() if has_query_col else ""
 
-                if not query:
-                    continue
+            if explicit_query:
+                query = explicit_query
+            else:
+                title = (sample.get("title", "") or "").strip()
+                if title:
+                    query = title
+                else:
+                    for sep in (". ", ".\n", "? ", "!\n"):
+                        idx = passage.find(sep)
+                        if idx != -1:
+                            query = passage[: idx + 1].strip()
+                            break
+                    else:
+                        query = passage[:128].strip()
+
+                    if not query:
+                        continue
 
             if self.use_instruction_prefix:
                 query = f"Instruct: Find relevant document.\nQuery: {query}"
