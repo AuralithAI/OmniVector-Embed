@@ -1,34 +1,26 @@
 name: Release - Auto Version, Tag, and Publish
 
+# Trigger AFTER the CI workflow completes on main — this is GitHub's
+# native mechanism and avoids all the check-name matching issues with
+# third-party wait actions.
 on:
-  push:
+  workflow_run:
+    workflows: ["CI - Lint, Type Check, Test"]
+    types: [completed]
     branches: [main]
 
 jobs:
-  # ── Gate: wait for CI to pass on this exact commit ──
-  ci-check:
-    name: Verify CI Passed
-    runs-on: ubuntu-latest
-    steps:
-      - name: Wait for all CI checks to complete
-        uses: lewagon/wait-on-check-action@v1.3.4
-        with:
-          ref: ${{ github.sha }}
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          running-workflow-name: ${{ github.workflow }}
-          wait-interval: 30
-          allowed-conclusions: success,skipped
-
-  # ── Skip releases triggered by the bot's own version-bump commit ──
+  # ── Only proceed if CI succeeded ──
   guard:
-    name: Skip Bot Commits
+    name: Gate & Skip Bot Commits
     runs-on: ubuntu-latest
-    needs: ci-check
+    if: github.event.workflow_run.conclusion == 'success'
     outputs:
       should-release: ${{ steps.check.outputs.should-release }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 1
 
       - name: Check commit author
@@ -55,6 +47,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
