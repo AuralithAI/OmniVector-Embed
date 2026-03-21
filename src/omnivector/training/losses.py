@@ -121,7 +121,9 @@ class MRLInfoNCELoss(nn.Module):
             else:
                 # Fallback: use in-batch negatives
                 pos_sims_all = torch.matmul(q_slice, positive_embeddings[:, :dim].transpose(0, 1))
-                all_neg_sims = pos_sims_all[~torch.eye(batch_size, dtype=torch.bool, device=q_slice.device)]
+                all_neg_sims = pos_sims_all[
+                    ~torch.eye(batch_size, dtype=torch.bool, device=q_slice.device)
+                ]
                 all_neg_sims = all_neg_sims.reshape(batch_size, -1)
 
             # Compute InfoNCE loss
@@ -136,7 +138,9 @@ class MRLInfoNCELoss(nn.Module):
             losses[f"loss_dim_{dim}"] = loss_dim.item()
             total_loss = total_loss + loss_dim * self.dim_weights[dim_idx]
 
-        losses["total_loss_scalar"] = total_loss.item() if isinstance(total_loss, torch.Tensor) else total_loss
+        losses["total_loss_scalar"] = (
+            total_loss.item() if isinstance(total_loss, torch.Tensor) else total_loss
+        )
         return {"loss": total_loss, **losses}
 
 

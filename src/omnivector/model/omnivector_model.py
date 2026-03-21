@@ -381,8 +381,10 @@ class OmniVectorModel(nn.Module):
                     neg_hidden = self._encode_tokens(flat_ids[valid], flat_mask[valid])
                     # Place back into full tensor (zeros for invalid rows)
                     full_neg = torch.zeros(
-                        flat_ids.size(0), neg_hidden.size(-1),
-                        device=neg_hidden.device, dtype=neg_hidden.dtype,
+                        flat_ids.size(0),
+                        neg_hidden.size(-1),
+                        device=neg_hidden.device,
+                        dtype=neg_hidden.dtype,
                     )
                     full_neg[valid] = neg_hidden
                     neg_emb = full_neg.reshape(batch_size, num_negs, -1)
