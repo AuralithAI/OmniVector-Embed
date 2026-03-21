@@ -180,6 +180,17 @@ class EmbeddingDataCollator:
         # Collect negatives (variable length)
         max_negs = min(max(len(item["negatives"]) for item in batch), self.max_negatives)
 
+        result = {
+            "query_input_ids": query_batch["input_ids"],
+            "query_attention_mask": query_batch["attention_mask"],
+            "positive_input_ids": positive_batch["input_ids"],
+            "positive_attention_mask": positive_batch["attention_mask"],
+        }
+
+        # If no negatives in any example, the model will use in-batch negatives
+        if max_negs == 0:
+            return result
+
         negative_input_ids_list = []
         negative_attention_mask_list = []
 
@@ -205,16 +216,11 @@ class EmbeddingDataCollator:
             negative_attention_mask_list.append(neg_attention_mask)
 
         # Stack negatives
-        negative_input_ids = torch.stack(negative_input_ids_list)  # [batch_size, max_negs, seq_len]
-        negative_attention_mask = torch.stack(
+        result["negative_input_ids"] = torch.stack(
+            negative_input_ids_list
+        )  # [batch_size, max_negs, seq_len]
+        result["negative_attention_mask"] = torch.stack(
             negative_attention_mask_list
         )  # [batch_size, max_negs, seq_len]
 
-        return {
-            "query_input_ids": query_batch["input_ids"],
-            "query_attention_mask": query_batch["attention_mask"],
-            "positive_input_ids": positive_batch["input_ids"],
-            "positive_attention_mask": positive_batch["attention_mask"],
-            "negative_input_ids": negative_input_ids,
-            "negative_attention_mask": negative_attention_mask,
-        }
+        return result
