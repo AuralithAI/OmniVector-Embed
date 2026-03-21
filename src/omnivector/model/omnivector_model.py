@@ -105,6 +105,16 @@ class OmniVectorModel(nn.Module):
 
         logger.info(f"OmniVectorModel initialized: output_dim={output_dim}, mrl_dims={mrl_dims}")
 
+    def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs=None):
+        """Enable gradient checkpointing on the backbone (required by HF Trainer)."""
+        self.backbone.model.gradient_checkpointing_enable(
+            gradient_checkpointing_kwargs=gradient_checkpointing_kwargs
+        )
+
+    def gradient_checkpointing_disable(self):
+        """Disable gradient checkpointing on the backbone."""
+        self.backbone.model.gradient_checkpointing_disable()
+
     def encode_audio(
         self,
         audio_features: torch.Tensor,
