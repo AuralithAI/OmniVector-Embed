@@ -363,7 +363,7 @@ class OmniVectorModel(nn.Module):
         )
 
         # Build pooling
-        pooling = LatentAttentionPooling()
+        pooling = LatentAttentionPooling(embed_dim=backbone.get_hidden_size())
 
         # Build optional vision encoder
         vision_encoder = None
