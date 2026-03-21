@@ -37,7 +37,7 @@ class OmniVectorTrainer(Trainer):
 
         return (loss, outputs) if return_outputs else loss
 
-    def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval):
+    def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval):
         """Log, save, and evaluate with custom loss formatting.
 
         Extends the base trainer to format loss output and handle
@@ -45,6 +45,7 @@ class OmniVectorTrainer(Trainer):
 
         Args:
             tr_loss: Training loss accumulation.
+            grad_norm: Gradient norm from training step.
             model: Model being trained.
             trial: Optional trial object for hyperparameter tuning.
             epoch: Current epoch.
