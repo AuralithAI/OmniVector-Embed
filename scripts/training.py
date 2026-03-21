@@ -20,6 +20,7 @@ from typing import Optional
 import torch
 from transformers import TrainingArguments
 
+from omnivector.data.dataset import EmbeddingDataCollator, EmbeddingDataset
 from omnivector.data.loaders import get_loader
 from omnivector.model.omnivector_model import OmniVectorModel
 from omnivector.training.callbacks import (
@@ -280,6 +281,11 @@ def main():
         teacher_model=args.teacher_model,
     )
 
+    # Wrap raw EmbeddingPair list in a proper PyTorch Dataset + Collator
+    tokenizer = model.tokenizer
+    train_dataset = EmbeddingDataset(pairs=dataset, tokenizer=tokenizer, max_length=512)
+    data_collator = EmbeddingDataCollator(tokenizer=tokenizer)
+
     callbacks = [
         LoggingCallback(),
         EarlyStoppingCallback(patience=3, min_delta=1e-4),
@@ -289,7 +295,8 @@ def main():
     trainer = OmniVectorTrainer(
         model=model,
         args=training_args,
-        train_dataset=dataset,
+        train_dataset=train_dataset,
+        data_collator=data_collator,
         callbacks=callbacks,
     )
 
