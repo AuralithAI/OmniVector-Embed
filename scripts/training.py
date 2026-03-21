@@ -240,6 +240,12 @@ def main():
         help="Path to checkpoint directory to resume training from. "
         "Overrides resume_from_checkpoint in YAML config.",
     )
+    parser.add_argument(
+        "--local_rank",
+        type=int,
+        default=-1,
+        help="Local rank for distributed training (set by DeepSpeed launcher)",
+    )
 
     args = parser.parse_args()
 
