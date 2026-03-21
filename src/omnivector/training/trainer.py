@@ -55,8 +55,8 @@ class OmniVectorTrainer(Trainer):
         """
         if self.control.should_log:
             logs: dict = {}
-            tr_loss_scalar = tr_loss / max(1, self.state.global_step)
-            logs["loss"] = tr_loss_scalar
+            tr_loss_scalar = (tr_loss / max(1, self.state.global_step)).item()
+            logs["loss"] = round(tr_loss_scalar, 4)
             logs["learning_rate"] = self._get_learning_rate()
 
             self.log(logs)
