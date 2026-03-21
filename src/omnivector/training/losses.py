@@ -136,7 +136,7 @@ class MRLInfoNCELoss(nn.Module):
             losses[f"loss_dim_{dim}"] = loss_dim.item()
             total_loss = total_loss + loss_dim * self.dim_weights[dim_idx]
 
-        losses["loss"] = total_loss.item()
+        losses["total_loss_scalar"] = total_loss.item() if isinstance(total_loss, torch.Tensor) else total_loss
         return {"loss": total_loss, **losses}
 
 
