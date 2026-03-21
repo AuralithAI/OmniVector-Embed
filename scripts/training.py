@@ -173,12 +173,12 @@ def create_training_dataset(
         List of training examples with hard negatives.
     """
     logger.info(f"Loading dataset: {dataset_name} ({split})")
-    loader = get_loader(dataset_name)
-    dataset = loader.load(split=split, max_samples=max_samples)
+    loader = get_loader(dataset_name, split=split, max_samples=max_samples)
+    dataset = loader.load()
 
     if teacher_model:
         logger.info(f"Mining hard negatives using teacher: {teacher_model}")
-        loader.load_corpus(split="corpus")
+        loader.load_corpus()
 
     logger.info(f"Loaded {len(dataset)} training examples")
     return dataset
