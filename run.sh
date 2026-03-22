@@ -230,15 +230,15 @@ deepspeed --num_gpus="$NUM_GPUS" scripts/training.py \
 echo "  Stage 1 training complete."
 sleep 60
 
-# Stage 2: Generalist — 18k steps, resumes from Stage 1
+# Stage 2: Generalist — 18k steps, loads Stage 1 weights
 echo ""
 echo "  ── Stage 2: Generalist (18k steps) ──"
 deepspeed --num_gpus="$NUM_GPUS" scripts/training.py \
     --config configs/stage2_generalist.yaml \
     --dataset msmarco \
     --output-dir checkpoints/stage2_55M \
-    --lora \
-    --resume checkpoints/stage1_8M/final_model
+    --model-path checkpoints/stage1_8M/final_model \
+    --lora
 
 echo "  Stage 2 training complete."
 sleep 60
@@ -249,7 +249,7 @@ echo "  ── Stage 3: Multimodal (12k steps) ──"
 deepspeed --num_gpus="$NUM_GPUS" scripts/train_multimodal.py \
     --config configs/stage3_multimodal.yaml \
     --output-dir checkpoints/stage3 \
-    --resume checkpoints/stage2_55M/final_model
+    --text-checkpoint checkpoints/stage2_55M/final_model
 
 echo "  Stage 3 training complete."
 sleep 30
