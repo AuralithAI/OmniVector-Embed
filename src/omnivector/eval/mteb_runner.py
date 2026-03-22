@@ -364,8 +364,16 @@ class MTEBRunner:
 
             # Pick the main metric for each task type
             main_score = None
-            for preferred in ("ndcg_at_10", "cos_sim_spearman", "v_measure",
-                              "accuracy", "ap", "map", "cos_sim_pearson", "f1"):
+            for preferred in (
+                "ndcg_at_10",
+                "cos_sim_spearman",
+                "v_measure",
+                "accuracy",
+                "ap",
+                "map",
+                "cos_sim_pearson",
+                "f1",
+            ):
                 if preferred in metrics:
                     main_score = metrics[preferred]
                     break
