@@ -61,18 +61,38 @@ def _load_json_training_args(
     output_dir: str,
     resume_from_checkpoint: Optional[str] = None,
 ) -> TrainingArguments:
-    """Load TrainingArguments from DeepSpeed JSON config."""
+    """Load TrainingArguments from DeepSpeed JSON config.
+
+    Gracefully handles missing optimizer/scheduler sections — when absent,
+    falls back to sensible defaults and lets HF Trainer manage them.
+    """
     with open(config_path) as f:
         config = json.load(f)
+
+    # Extract learning rate from optimizer block if present, else default
+    optimizer_cfg = config.get("optimizer", {})
+    lr = optimizer_cfg.get("params", {}).get("lr", 2e-5)
+
+    # Extract warmup steps from scheduler block if present, else default
+    scheduler_cfg = config.get("scheduler", {})
+    warmup_steps = scheduler_cfg.get("params", {}).get("warmup_num_steps", 500)
+
+    # Batch sizes may be "auto" when DeepSpeed delegates to HF Trainer
+    micro_batch = config.get("train_micro_batch_size_per_gpu", 16)
+    if micro_batch == "auto":
+        micro_batch = 16
+    grad_accum = config.get("gradient_accumulation_steps", 4)
+    if grad_accum == "auto":
+        grad_accum = 4
 
     return TrainingArguments(
         output_dir=output_dir,
         num_train_epochs=config.get("num_train_epochs", 3),
-        learning_rate=config["optimizer"]["params"]["lr"],
-        per_device_train_batch_size=config["train_micro_batch_size_per_gpu"],
-        per_device_eval_batch_size=config["train_micro_batch_size_per_gpu"],
-        gradient_accumulation_steps=config["gradient_accumulation_steps"],
-        warmup_steps=config["scheduler"]["params"]["warmup_num_steps"],
+        learning_rate=lr,
+        per_device_train_batch_size=micro_batch,
+        per_device_eval_batch_size=micro_batch,
+        gradient_accumulation_steps=grad_accum,
+        warmup_steps=warmup_steps,
         max_steps=config.get("max_steps", -1),
         logging_steps=config.get("steps_per_print", 100),
         save_steps=config.get("save_steps", 1000),
@@ -82,7 +102,8 @@ def _load_json_training_args(
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
-        fp16=config["fp16"]["enabled"],
+        fp16=config.get("fp16", {}).get("enabled", False),
+        bf16=config.get("bf16", {}).get("enabled", False),
         gradient_checkpointing=True,
         dataloader_num_workers=4,
         dataloader_pin_memory=True,
