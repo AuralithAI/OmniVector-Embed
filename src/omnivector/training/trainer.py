@@ -76,7 +76,11 @@ class OmniVectorTrainer(Trainer):
         return self.optimizer.param_groups[0]["lr"]
 
     def _save_checkpoint(self, model, trial, metrics=None):
-        """Save model checkpoint.
+        """Save model checkpoint with trainer state for resume support.
+
+        Saves model weights via our custom save_pretrained (model.pt) plus
+        the HF Trainer state (trainer_state.json, optimizer, scheduler) so
+        that ``--resume`` can pick up exactly where training left off.
 
         Args:
             model: Model to save.
@@ -84,5 +88,16 @@ class OmniVectorTrainer(Trainer):
             metrics: Optional metrics to track best checkpoint.
         """
         checkpoint_folder = f"{self.args.output_dir}/checkpoint-{self.state.global_step}"
+
+        # Save our custom model weights (model.pt)
         self.model.save_pretrained(checkpoint_folder)
+
+        # Save HF Trainer state (trainer_state.json, optimizer, scheduler, rng)
+        # so that --resume can restore the full training state.
+        self.state.save_to_json(f"{checkpoint_folder}/trainer_state.json")
+
+        # Manage old checkpoints according to save_total_limit
+        if self.args.save_total_limit is not None:
+            self._rotate_checkpoints(use_mtime=True, output_dir=self.args.output_dir)
+
         logger.info(f"Saved checkpoint to {checkpoint_folder}")

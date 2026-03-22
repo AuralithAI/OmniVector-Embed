@@ -31,7 +31,10 @@ training_args:
   dataloader_pin_memory: true
   remove_unused_columns: false
   optim: adamw_torch
-  resume_from_checkpoint: checkpoints/stage2_55M/checkpoint-final
+  # NOTE: Do NOT set resume_from_checkpoint here.
+  # Stage chaining uses --text-checkpoint (CLI) to load trained weights into a
+  # fresh optimizer/scheduler.  HF Trainer resume requires optimizer &
+  # trainer_state files that our custom save_pretrained does not produce.
 
 model_config:
   model_name: mistralai/Mistral-7B-v0.1
