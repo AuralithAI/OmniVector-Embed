@@ -274,22 +274,22 @@ python scripts/evaluate.py \
     --stage stage1 \
     --lora
 
-# Evaluate Stage 2 — generalist (full text benchmark)
+# Evaluate Stage 2 — generalist (text benchmark)
 echo ""
 echo "  ── Evaluating Stage 2 (generalist) ──"
 python scripts/evaluate.py \
     --model-path checkpoints/stage2_55M/final_model \
-    --tasks retrieval,sts,clustering,pair_classification,reranking \
+    --tasks retrieval,sts,clustering,pair_classification,reranking,classification,summarization \
     --output-dir eval_results/stage2 \
     --stage stage2 \
     --lora
 
-# Evaluate Stage 3 — final multimodal model
+# Evaluate Stage 3 — full MTEB benchmark (56 tasks, NV-Embed v2 leaderboard)
 echo ""
-echo "  ── Evaluating Stage 3 (multimodal) ──"
+echo "  ── Evaluating Stage 3 (full MTEB — 56 tasks) ──"
 python scripts/evaluate.py \
     --model-path checkpoints/stage3/final_model \
-    --tasks retrieval,sts,clustering,pair_classification,reranking \
+    --full-mteb \
     --output-dir eval_results/stage3 \
     --stage stage3 \
     --lora

@@ -53,7 +53,14 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="retrieval",
         help="Comma-separated task *types*: retrieval, sts, clustering, "
-        "pair_classification, reranking (default: retrieval).",
+        "pair_classification, reranking, classification, summarization "
+        "(default: retrieval).",
+    )
+    parser.add_argument(
+        "--full-mteb",
+        action="store_true",
+        help="Run the full MTEB English benchmark (all 56 tasks across 7 categories). "
+        "Overrides --tasks. This is the NV-Embed v2 leaderboard evaluation.",
     )
     parser.add_argument(
         "--task-names",
@@ -143,7 +150,12 @@ def main() -> None:
     task_types = None
     task_names = None
 
-    if args.task_names:
+    if args.full_mteb:
+        from omnivector.eval.mteb_runner import FULL_MTEB_TASKS
+
+        task_names = FULL_MTEB_TASKS
+        logger.info(f"Running full MTEB benchmark: {len(task_names)} tasks")
+    elif args.task_names:
         task_names = [t.strip() for t in args.task_names.split(",") if t.strip()]
         logger.info(f"Running explicit tasks: {task_names}")
     else:
