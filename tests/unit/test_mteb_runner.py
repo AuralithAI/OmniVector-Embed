@@ -40,6 +40,8 @@ class TestTaskSets:
             "clustering",
             "pair_classification",
             "reranking",
+            "classification",
+            "summarization",
         }
 
     def test_benchmark_targets_stages(self):

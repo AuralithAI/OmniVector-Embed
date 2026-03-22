@@ -31,6 +31,15 @@ RETRIEVAL_TASKS = [
     "SciFact",
     "ArguAna",
     "FiQA2018",
+    "TRECCOVID",
+    "Touche2020",
+    "NQ",
+    "DBPedia",
+    "FEVER",
+    "ClimateFEVER",
+    "HotpotQA",
+    "CQADupstackRetrieval",
+    "QuoraRetrieval",
 ]
 
 STS_TASKS = [
@@ -41,21 +50,53 @@ STS_TASKS = [
     "STS16",
     "STSBenchmark",
     "SICK-R",
+    "BIOSSES",
 ]
 
 CLUSTERING_TASKS = [
     "TwentyNewsgroupsClustering",
     "RedditClustering",
+    "RedditClusteringP2P",
+    "StackExchangeClustering",
+    "StackExchangeClusteringP2P",
+    "ArXivClusteringP2P",
+    "ArXivClusteringS2S",
+    "MedrxivClusteringP2P",
+    "MedrxivClusteringS2S",
+    "BiorxivClusteringP2P",
+    "BiorxivClusteringS2S",
 ]
 
 PAIR_CLASSIFICATION_TASKS = [
     "TwitterURLCorpus",
     "SprintDuplicateQuestions",
+    "TwitterSemEval2015",
 ]
 
 RERANKING_TASKS = [
     "AskUbuntuDupQuestions",
     "StackOverflowDupQuestions",
+    "MindSmallReranking",
+    "SciDocsRR",
+]
+
+CLASSIFICATION_TASKS = [
+    "AmazonCounterfactualClassification",
+    "AmazonPolarityClassification",
+    "AmazonReviewsClassification",
+    "Banking77Classification",
+    "EmotionClassification",
+    "ImdbClassification",
+    "MassiveIntentClassification",
+    "MassiveScenarioClassification",
+    "MTOPDomainClassification",
+    "MTOPIntentClassification",
+    "ToxicConversationsClassification",
+    "TweetSentimentExtractionClassification",
+]
+
+SUMMARIZATION_TASKS = [
+    "SummEval",
 ]
 
 ALL_TASK_SETS: dict[str, list[str]] = {
@@ -64,7 +105,14 @@ ALL_TASK_SETS: dict[str, list[str]] = {
     "clustering": CLUSTERING_TASKS,
     "pair_classification": PAIR_CLASSIFICATION_TASKS,
     "reranking": RERANKING_TASKS,
+    "classification": CLASSIFICATION_TASKS,
+    "summarization": SUMMARIZATION_TASKS,
 }
+
+# Full MTEB English benchmark — all 56 tasks for leaderboard score
+FULL_MTEB_TASKS: list[str] = []
+for _task_list in ALL_TASK_SETS.values():
+    FULL_MTEB_TASKS.extend(_task_list)
 
 # Benchmark targets (stage → metric → threshold)
 BENCHMARK_TARGETS: dict[str, dict[str, float]] = {
@@ -289,24 +337,43 @@ class MTEBRunner:
 
     @staticmethod
     def print_summary(results: dict[str, dict[str, float]]) -> None:
-        """Pretty-print evaluation results to stdout.
+        """Pretty-print evaluation results to stdout with MTEB-style scoring.
+
+        Computes per-category averages and overall MTEB score (average of
+        category averages), matching the NV-Embed v2 leaderboard methodology.
 
         Args:
             results: Output from :meth:`run`.
         """
+        # Map task → category for per-category scoring
+        task_to_category: dict[str, str] = {}
+        for category, task_list in ALL_TASK_SETS.items():
+            for task in task_list:
+                task_to_category[task] = category
+
         print("\n" + "=" * 72)
         print("MTEB Evaluation Summary")
         print("=" * 72)
 
-        all_main_scores: list[float] = []
+        category_scores: dict[str, list[float]] = {}
 
         for task_name, metrics in sorted(results.items()):
             if "error" in metrics:
                 print(f"  {task_name:40s}  ERROR: {metrics['error']}")
                 continue
 
+            # Pick the main metric for each task type
             main_score = None
-            for preferred in ("ndcg_at_10", "cos_sim_spearman", "accuracy", "ap", "f1"):
+            for preferred in (
+                "ndcg_at_10",
+                "cos_sim_spearman",
+                "v_measure",
+                "accuracy",
+                "ap",
+                "map",
+                "cos_sim_pearson",
+                "f1",
+            ):
                 if preferred in metrics:
                     main_score = metrics[preferred]
                     break
@@ -314,13 +381,29 @@ class MTEBRunner:
                 main_score = next(iter(metrics.values()))
 
             if main_score is not None:
-                all_main_scores.append(main_score)
-                print(f"  {task_name:40s}  {main_score:.4f}")
+                category = task_to_category.get(task_name, "other")
+                category_scores.setdefault(category, []).append(main_score)
+                # Display as percentage if < 1 (MTEB convention)
+                display = main_score * 100 if main_score < 1 else main_score
+                print(f"  {task_name:40s}  {display:.2f}")
 
-        if all_main_scores:
-            avg = sum(all_main_scores) / len(all_main_scores)
+        # Per-category averages
+        print("-" * 72)
+        print("  Category Averages:")
+        overall_category_avgs: list[float] = []
+        for category in ALL_TASK_SETS:
+            scores = category_scores.get(category, [])
+            if scores:
+                avg = sum(scores) / len(scores)
+                avg_pct = avg * 100 if avg < 1 else avg
+                overall_category_avgs.append(avg_pct)
+                print(f"    {category:38s}  {avg_pct:.2f}  ({len(scores)} tasks)")
+
+        # Overall MTEB score = average of category averages
+        if overall_category_avgs:
+            mteb_score = sum(overall_category_avgs) / len(overall_category_avgs)
             print("-" * 72)
-            print(f"  {'Average':40s}  {avg:.4f}")
+            print(f"  {'MTEB Overall Score':40s}  {mteb_score:.2f}")
         print("=" * 72 + "\n")
 
     @staticmethod

@@ -26,7 +26,7 @@ class MRLInfoNCELoss(nn.Module):
         self,
         mrl_dims: tuple[int, ...] = (512, 1024, 2048, 4096),
         temperatures: Optional[tuple[float, ...]] = None,
-        device: str = "cuda",
+        device: str = "cpu",
     ) -> None:
         """
         Initialize MRL loss.
@@ -34,11 +34,10 @@ class MRLInfoNCELoss(nn.Module):
         Args:
             mrl_dims: Matryoshka dimensions
             temperatures: Temperature per dimension (default: 0.07 for all)
-            device: Device for loss computation
+            device: Device for buffer creation (buffers move with the model)
         """
         super().__init__()
         self.mrl_dims = mrl_dims
-        self.device = device
 
         if temperatures is None:
             temperatures = tuple(0.07 for _ in mrl_dims)
@@ -51,7 +50,7 @@ class MRLInfoNCELoss(nn.Module):
         # Fixed dimension weights per NV-Embed-v2 spec
         self.register_buffer(
             "dim_weights",
-            torch.tensor([0.5, 0.75, 1.0, 1.0][: len(mrl_dims)]),
+            torch.tensor([0.5, 0.75, 1.0, 1.0][: len(mrl_dims)], device=device),
         )
 
         logger.info(f"MRLInfoNCELoss initialized: dims={mrl_dims}, temps={temperatures}")
@@ -122,7 +121,9 @@ class MRLInfoNCELoss(nn.Module):
             else:
                 # Fallback: use in-batch negatives
                 pos_sims_all = torch.matmul(q_slice, positive_embeddings[:, :dim].transpose(0, 1))
-                all_neg_sims = pos_sims_all[~torch.eye(batch_size, dtype=torch.bool)]
+                all_neg_sims = pos_sims_all[
+                    ~torch.eye(batch_size, dtype=torch.bool, device=q_slice.device)
+                ]
                 all_neg_sims = all_neg_sims.reshape(batch_size, -1)
 
             # Compute InfoNCE loss
@@ -137,7 +138,9 @@ class MRLInfoNCELoss(nn.Module):
             losses[f"loss_dim_{dim}"] = loss_dim.item()
             total_loss = total_loss + loss_dim * self.dim_weights[dim_idx]
 
-        losses["loss"] = total_loss.item()
+        losses["total_loss_scalar"] = (
+            total_loss.item() if isinstance(total_loss, torch.Tensor) else total_loss
+        )
         return {"loss": total_loss, **losses}
 
 

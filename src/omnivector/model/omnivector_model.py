@@ -9,6 +9,7 @@ Unified interface for multimodal embeddings with:
 """
 
 import logging
+from dataclasses import dataclass
 from typing import Optional, Union
 
 import torch
@@ -21,8 +22,18 @@ from omnivector.model.backbone import MistralEmbeddingBackbone
 from omnivector.model.latent_attention import LatentAttentionPooling
 from omnivector.model.video_encoder import VideoEncoder
 from omnivector.model.vision_encoder import SigLIPVisionEncoder
+from omnivector.training.losses import MRLInfoNCELoss
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class OmniVectorOutput:
+    """Output from OmniVectorModel training forward pass."""
+
+    loss: torch.Tensor
+    query_embeddings: Optional[torch.Tensor] = None
+    positive_embeddings: Optional[torch.Tensor] = None
 
 
 class OmniVectorModel(nn.Module):
@@ -93,9 +104,14 @@ class OmniVectorModel(nn.Module):
         # Load tokenizer
         try:
             self.tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-v0.1")
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
         except Exception as e:
             logger.warning(f"Failed to load tokenizer: {e}")
             self.tokenizer = None
+
+        # MRL training loss
+        self.mrl_loss = MRLInfoNCELoss(mrl_dims=mrl_dims)
 
         # Video encoder (optional)
         if vision_encoder is not None:
@@ -107,6 +123,8 @@ class OmniVectorModel(nn.Module):
 
     def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs=None):
         """Enable gradient checkpointing on the backbone (required by HF Trainer)."""
+        if gradient_checkpointing_kwargs is None:
+            gradient_checkpointing_kwargs = {"use_reentrant": False}
         self.backbone.model.gradient_checkpointing_enable(
             gradient_checkpointing_kwargs=gradient_checkpointing_kwargs
         )
@@ -275,26 +293,115 @@ class OmniVectorModel(nn.Module):
 
         return embeddings
 
-    def forward(
+    def _encode_tokens(
         self,
         input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        """Encode token ids to pooled embeddings (full dim, unnormalized).
+
+        Args:
+            input_ids: Token IDs [batch_size, seq_length].
+            attention_mask: Attention mask [batch_size, seq_length].
+
+        Returns:
+            Embeddings [batch_size, output_dim].
+        """
+        hidden_states = self.backbone(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+        )
+        embeddings = self.pooling(
+            hidden_states=hidden_states,
+            attention_mask=~attention_mask.bool() if attention_mask is not None else None,
+        )
+        return embeddings
+
+    def forward(
+        self,
+        input_ids: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         images: Optional[torch.Tensor] = None,
         output_dim: int = 4096,
-    ) -> Union[torch.Tensor, tuple]:
+        # ── training batch keys (from EmbeddingDataCollator) ──
+        query_input_ids: Optional[torch.Tensor] = None,
+        query_attention_mask: Optional[torch.Tensor] = None,
+        positive_input_ids: Optional[torch.Tensor] = None,
+        positive_attention_mask: Optional[torch.Tensor] = None,
+        negative_input_ids: Optional[torch.Tensor] = None,
+        negative_attention_mask: Optional[torch.Tensor] = None,
+        **kwargs,
+    ) -> Union[torch.Tensor, tuple, OmniVectorOutput]:
         """
-        Forward pass (text or multimodal).
+        Forward pass (inference or training).
+
+        In **training mode** the collator provides ``query_input_ids``,
+        ``positive_input_ids`` and ``negative_input_ids``; the method
+        encodes all three, computes the MRL InfoNCE loss, and returns an
+        :class:`OmniVectorOutput` with the ``loss`` attribute expected by
+        the HuggingFace Trainer.
+
+        In **inference mode** only ``input_ids`` (and optionally ``images``)
+        are provided, and raw embeddings are returned.
 
         Args:
-            input_ids: Text token IDs [batch_size, seq_length]
-            attention_mask: Attention mask [batch_size, seq_length]
-            images: Optional image tensors [batch_size, 3, height, width]
-            output_dim: Output dimension (default 4096)
+            input_ids: Token IDs for inference [batch_size, seq_length].
+            attention_mask: Attention mask for inference.
+            images: Optional image tensors [batch_size, 3, H, W].
+            output_dim: Output dimension (default 4096).
+            query_input_ids: Tokenised queries [B, seq_len] (training).
+            query_attention_mask: Query attention mask (training).
+            positive_input_ids: Tokenised positives [B, seq_len] (training).
+            positive_attention_mask: Positive attention mask (training).
+            negative_input_ids: Tokenised negatives [B, N, seq_len] (training).
+            negative_attention_mask: Negative attention mask (training).
 
         Returns:
-            Embeddings [batch_size, output_dim] or (text_emb, image_emb) if images provided
+            OmniVectorOutput (training) or embeddings tensor (inference).
         """
-        # Text encodings
+        # ── Training path ──
+        if query_input_ids is not None:
+            # Encode queries  [B, dim]
+            q_emb = self._encode_tokens(query_input_ids, query_attention_mask)
+
+            # Encode positives  [B, dim]
+            p_emb = self._encode_tokens(positive_input_ids, positive_attention_mask)
+
+            # Encode negatives  [B, N, dim]
+            neg_emb = None
+            if negative_input_ids is not None and negative_input_ids.numel() > 0:
+                batch_size, num_negs, seq_len = negative_input_ids.shape
+                # Flatten → [B*N, seq_len], encode, reshape back
+                flat_ids = negative_input_ids.reshape(-1, seq_len)
+                flat_mask = negative_attention_mask.reshape(-1, seq_len)
+
+                # Skip all-zero (padding) negatives
+                valid = flat_mask.any(dim=-1)
+                if valid.any():
+                    neg_hidden = self._encode_tokens(flat_ids[valid], flat_mask[valid])
+                    # Place back into full tensor (zeros for invalid rows)
+                    full_neg = torch.zeros(
+                        flat_ids.size(0),
+                        neg_hidden.size(-1),
+                        device=neg_hidden.device,
+                        dtype=neg_hidden.dtype,
+                    )
+                    full_neg[valid] = neg_hidden
+                    neg_emb = full_neg.reshape(batch_size, num_negs, -1)
+
+            loss_dict = self.mrl_loss(
+                query_embeddings=q_emb,
+                positive_embeddings=p_emb,
+                negative_embeddings=neg_emb,
+            )
+
+            return OmniVectorOutput(
+                loss=loss_dict["loss"],
+                query_embeddings=q_emb,
+                positive_embeddings=p_emb,
+            )
+
+        # ── Inference path ──
         hidden_states = self.backbone(
             input_ids=input_ids,
             attention_mask=attention_mask,

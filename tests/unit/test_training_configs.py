@@ -61,10 +61,10 @@ class TestStage2Config:
         assert "data_path" in data_config
         assert "train_files" not in data_config
 
-    def test_resume_from_checkpoint(self):
+    def test_resume_from_checkpoint_not_hardcoded(self):
+        """Stage chaining uses --model-path CLI, not resume_from_checkpoint in YAML."""
         resume = self.config["training_args"].get("resume_from_checkpoint")
-        assert resume is not None
-        assert "stage1" in resume
+        assert resume is None
 
 
 # ── Stage 3 Multimodal Config ──
@@ -98,10 +98,10 @@ class TestStage3Config:
         assert mc["freeze_vision"] is False
         assert mc["freeze_audio"] is False
 
-    def test_resume_from_stage2(self):
+    def test_resume_from_checkpoint_not_hardcoded(self):
+        """Stage chaining uses --text-checkpoint CLI, not resume_from_checkpoint in YAML."""
         resume = self.config["training_args"].get("resume_from_checkpoint")
-        assert resume is not None
-        assert "stage2" in resume
+        assert resume is None
 
     def test_bf16_enabled(self):
         assert self.config["training_args"]["bf16"] is True

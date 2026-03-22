@@ -87,18 +87,23 @@ class TestOmniVectorTrainer:
         assert loss is loss_tensor
 
     def test_save_checkpoint(self, tmp_path):
-        """Test checkpoint saving creates correct path."""
+        """Test checkpoint saving creates correct path and trainer state."""
         model = Mock()
-        trainer = _make_trainer(model=model, args=Mock(output_dir=str(tmp_path)))
+        args = Mock(output_dir=str(tmp_path), save_total_limit=None)
+        trainer = _make_trainer(model=model, args=args)
         trainer.state.global_step = 1000
 
         trainer._save_checkpoint(model, None)
         model.save_pretrained.assert_called_once_with(f"{tmp_path}/checkpoint-1000")
+        trainer.state.save_to_json.assert_called_once_with(
+            f"{tmp_path}/checkpoint-1000/trainer_state.json"
+        )
 
     def test_multiple_checkpoint_saves(self, tmp_path):
         """Test sequential checkpoint saves."""
         model = Mock()
-        trainer = _make_trainer(model=model, args=Mock(output_dir=str(tmp_path)))
+        args = Mock(output_dir=str(tmp_path), save_total_limit=None)
+        trainer = _make_trainer(model=model, args=args)
 
         trainer.state.global_step = 1000
         trainer._save_checkpoint(model, None)

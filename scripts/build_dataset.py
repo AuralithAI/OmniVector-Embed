@@ -1009,17 +1009,13 @@ def build_stage_dataset(
             )
             # Weight towards smaller domains to improve balance
             domain_names = list(domain_indices.keys())
-            domain_weights = np.array(
-                [1.0 / max(len(domain_indices[d]), 1) for d in domain_names]
-            )
+            domain_weights = np.array([1.0 / max(len(domain_indices[d]), 1) for d in domain_names])
             domain_weights /= domain_weights.sum()
 
             # Vectorised: draw all domain choices at once, then draw
             # record indices per domain in bulk — avoids 44M Python iterations
             _t_fill = _time.monotonic()
-            chosen_domains = rng.choice(
-                len(domain_names), size=still_needed, p=domain_weights
-            )
+            chosen_domains = rng.choice(len(domain_names), size=still_needed, p=domain_weights)
             domain_counts_fill = np.bincount(chosen_domains, minlength=len(domain_names))
 
             remainder_indices: list[int] = []
@@ -1037,9 +1033,7 @@ def build_stage_dataset(
                     )
 
             extra_records.extend([all_records[i] for i in remainder_indices])
-            logger.info(
-                f"Remainder fill complete in {_time.monotonic() - _t_fill:.1f}s"
-            )
+            logger.info(f"Remainder fill complete in {_time.monotonic() - _t_fill:.1f}s")
 
         all_records.extend(extra_records)
         logger.info(f"Upsampling complete: {len(all_records)} total records")

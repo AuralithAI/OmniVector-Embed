@@ -37,7 +37,9 @@ class OmniVectorTrainer(Trainer):
 
         return (loss, outputs) if return_outputs else loss
 
-    def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval):
+    def _maybe_log_save_evaluate(
+        self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval
+    ):
         """Log, save, and evaluate with custom loss formatting.
 
         Extends the base trainer to format loss output and handle
@@ -45,6 +47,7 @@ class OmniVectorTrainer(Trainer):
 
         Args:
             tr_loss: Training loss accumulation.
+            grad_norm: Gradient norm from training step.
             model: Model being trained.
             trial: Optional trial object for hyperparameter tuning.
             epoch: Current epoch.
@@ -52,8 +55,8 @@ class OmniVectorTrainer(Trainer):
         """
         if self.control.should_log:
             logs: dict = {}
-            tr_loss_scalar = tr_loss / max(1, self.state.global_step)
-            logs["loss"] = tr_loss_scalar
+            tr_loss_scalar = (tr_loss / max(1, self.state.global_step)).item()
+            logs["loss"] = round(tr_loss_scalar, 4)
             logs["learning_rate"] = self._get_learning_rate()
 
             self.log(logs)
@@ -73,7 +76,11 @@ class OmniVectorTrainer(Trainer):
         return self.optimizer.param_groups[0]["lr"]
 
     def _save_checkpoint(self, model, trial, metrics=None):
-        """Save model checkpoint.
+        """Save model checkpoint with trainer state for resume support.
+
+        Saves model weights via our custom save_pretrained (model.pt) plus
+        the HF Trainer state (trainer_state.json, optimizer, scheduler) so
+        that ``--resume`` can pick up exactly where training left off.
 
         Args:
             model: Model to save.
@@ -81,5 +88,16 @@ class OmniVectorTrainer(Trainer):
             metrics: Optional metrics to track best checkpoint.
         """
         checkpoint_folder = f"{self.args.output_dir}/checkpoint-{self.state.global_step}"
+
+        # Save our custom model weights (model.pt)
         self.model.save_pretrained(checkpoint_folder)
+
+        # Save HF Trainer state (trainer_state.json, optimizer, scheduler, rng)
+        # so that --resume can restore the full training state.
+        self.state.save_to_json(f"{checkpoint_folder}/trainer_state.json")
+
+        # Manage old checkpoints according to save_total_limit
+        if self.args.save_total_limit is not None:
+            self._rotate_checkpoints(use_mtime=True, output_dir=self.args.output_dir)
+
         logger.info(f"Saved checkpoint to {checkpoint_folder}")
