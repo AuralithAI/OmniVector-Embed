@@ -238,7 +238,7 @@ deepspeed --num_gpus="$NUM_GPUS" scripts/training.py \
     --dataset msmarco \
     --output-dir checkpoints/stage2_55M \
     --lora \
-    --resume checkpoints/stage1_8M/checkpoint-final
+    --resume checkpoints/stage1_8M/final_model
 
 echo "  Stage 2 training complete."
 sleep 60
@@ -247,7 +247,9 @@ sleep 60
 echo ""
 echo "  ── Stage 3: Multimodal (12k steps) ──"
 deepspeed --num_gpus="$NUM_GPUS" scripts/train_multimodal.py \
-    --config configs/stage3_multimodal.yaml
+    --config configs/stage3_multimodal.yaml \
+    --output-dir checkpoints/stage3 \
+    --resume checkpoints/stage2_55M/final_model
 
 echo "  Stage 3 training complete."
 sleep 30
@@ -262,15 +264,41 @@ echo "============================================"
 echo "[8/8] Evaluation & Export..."
 echo "============================================"
 
+# Evaluate Stage 1 — retrieval baseline
+echo ""
+echo "  ── Evaluating Stage 1 (retrieval baseline) ──"
 python scripts/evaluate.py \
-    --model-path checkpoints/stage2_55M/checkpoint-final \
-    --tasks retrieval,sts,clustering \
-    --output-dir eval_results \
+    --model-path checkpoints/stage1_8M/final_model \
+    --tasks retrieval \
+    --output-dir eval_results/stage1 \
+    --stage stage1 \
+    --lora
+
+# Evaluate Stage 2 — generalist (full text benchmark)
+echo ""
+echo "  ── Evaluating Stage 2 (generalist) ──"
+python scripts/evaluate.py \
+    --model-path checkpoints/stage2_55M/final_model \
+    --tasks retrieval,sts,clustering,pair_classification,reranking \
+    --output-dir eval_results/stage2 \
     --stage stage2 \
     --lora
 
+# Evaluate Stage 3 — final multimodal model
+echo ""
+echo "  ── Evaluating Stage 3 (multimodal) ──"
+python scripts/evaluate.py \
+    --model-path checkpoints/stage3/final_model \
+    --tasks retrieval,sts,clustering,pair_classification,reranking \
+    --output-dir eval_results/stage3 \
+    --stage stage3 \
+    --lora
+
+# ONNX export of final model
+echo ""
+echo "  ── Exporting final model to ONNX ──"
 python scripts/export_onnx.py \
-    --model-path checkpoints/stage2_55M/checkpoint-final \
+    --model-path checkpoints/stage3/final_model \
     --output-dir onnx_export \
     --optimize \
     --quantize-int8 \
