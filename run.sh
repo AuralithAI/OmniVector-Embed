@@ -242,6 +242,17 @@ python scripts/build_dataset.py \
 echo "  Stage 3 data build complete."
 sleep 30
 
+# Stage 3 audio: download from WavCaps (replaces broken AudioSet/YouTube approach)
+echo ""
+echo "  ── Downloading WavCaps audio (FreeSound + BBC + SoundBible) ──"
+python scripts/download_wavcaps_audio.py \
+    --output-dir data/stage3_multimodal \
+    --max-samples 20000 \
+    --sources freesound bbc_sound_effects soundbible
+
+echo "  WavCaps audio download complete."
+sleep 10
+
 
 # ───────────────────────────────────────────────────────────────────
 # Multi-Stage Training (DeepSpeed ZeRO-2 + LoRA + bf16)
