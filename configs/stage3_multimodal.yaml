@@ -82,13 +82,13 @@ modality_config:
 
 data_config:
   data_path: data/stage3_multimodal
-  text_data: data/stage2_55M/train.jsonl
-  image_data: data/multimodal/image_text_pairs.jsonl
-  image_dir: data/multimodal/images
-  video_data: data/multimodal/video_text_pairs.jsonl
-  video_dir: data/multimodal/videos
-  audio_data: data/multimodal/audio_text_pairs.jsonl
-  audio_dir: data/multimodal/audio
+  text_data: data/stage3_multimodal/text_pairs.jsonl
+  image_data: data/stage3_multimodal/image_text_pairs.jsonl
+  image_dir: data/stage3_multimodal/images
+  video_data: data/stage3_multimodal/video_text_pairs.jsonl
+  video_dir: data/stage3_multimodal/videos
+  audio_data: data/stage3_multimodal/audio_text_pairs.jsonl
+  audio_dir: data/stage3_multimodal/audio
   multimodal_ratio: 0.5
   max_seq_length: 512
 

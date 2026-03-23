@@ -15,6 +15,7 @@ Usage:
 import argparse
 import json
 import logging
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -841,6 +842,413 @@ def save_dataset(
     return output_file
 
 
+# ───────────────────────────────────────────────────────────────────
+# Stage 3: Download multimodal media and produce local-path JSONL
+# ───────────────────────────────────────────────────────────────────
+
+
+def _download_image(url: str, dest: Path, timeout: int = 10) -> bool:
+    """Download a single image from URL.
+
+    Args:
+        url: Image URL.
+        dest: Destination file path.
+        timeout: HTTP timeout in seconds.
+
+    Returns:
+        True if download succeeded and file is a valid image.
+    """
+    import requests
+    from PIL import Image
+
+    try:
+        resp = requests.get(url, timeout=timeout, stream=True)
+        resp.raise_for_status()
+
+        content_type = resp.headers.get("content-type", "")
+        if "image" not in content_type and "octet-stream" not in content_type:
+            return False
+
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with open(dest, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+
+        # Validate image is readable
+        img = Image.open(dest)
+        img.verify()
+        return True
+    except Exception:
+        if dest.exists():
+            dest.unlink()
+        return False
+
+
+def _download_video(url: str, dest: Path, timeout: int = 30) -> bool:
+    """Download a single video from URL.
+
+    Args:
+        url: Video URL (direct link, e.g. from WebVid).
+        dest: Destination file path.
+        timeout: HTTP timeout in seconds.
+
+    Returns:
+        True if download succeeded and file is non-empty.
+    """
+    import requests
+
+    try:
+        resp = requests.get(url, timeout=timeout, stream=True)
+        resp.raise_for_status()
+
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        size = 0
+        with open(dest, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=65536):
+                f.write(chunk)
+                size += len(chunk)
+
+        # Basic sanity: video should be at least 1 KB
+        if size < 1024:
+            dest.unlink()
+            return False
+        return True
+    except Exception:
+        if dest.exists():
+            dest.unlink()
+        return False
+
+
+def _download_audio_from_youtube(video_id: str, dest: Path, timeout: int = 60) -> bool:
+    """Download audio from a YouTube video using yt-dlp.
+
+    AudioSet records reference YouTube video IDs. We extract audio-only
+    in WAV format (16 kHz mono) for Whisper-compatible processing.
+
+    Args:
+        video_id: YouTube video ID.
+        dest: Destination .wav file path.
+        timeout: Download timeout in seconds.
+
+    Returns:
+        True if download succeeded.
+    """
+    import subprocess
+
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        # yt-dlp: extract audio as wav, 16kHz mono, max 10s
+        cmd = [
+            "yt-dlp",
+            "--no-playlist",
+            "--extract-audio",
+            "--audio-format", "wav",
+            "--postprocessor-args", "ffmpeg:-ac 1 -ar 16000 -t 10",
+            "--output", str(dest.with_suffix(".%(ext)s")),
+            "--socket-timeout", str(timeout),
+            "--quiet",
+            f"https://www.youtube.com/watch?v={video_id}",
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=timeout + 30)
+        # yt-dlp names the file with the correct extension
+        wav_path = dest.with_suffix(".wav")
+        if wav_path.exists() and wav_path.stat().st_size > 1024:
+            if wav_path != dest:
+                wav_path.rename(dest)
+            return True
+        return False
+    except Exception:
+        for suffix in (".wav", ".webm", ".m4a", ".mp3"):
+            p = dest.with_suffix(suffix)
+            if p.exists():
+                p.unlink()
+        return False
+
+
+def build_stage3_multimodal(
+    source_dir: str,
+    output_dir: str,
+    max_images: int = 100_000,
+    max_audio: int = 20_000,
+    max_video: int = 10_000,
+    download_workers: int = 16,
+    timeout: int = 10,
+) -> None:
+    """Build Stage 3 multimodal dataset by downloading media.
+
+    Reads ``multimodal_pairs.jsonl`` from *source_dir* (produced by
+    ``--stage 2``), downloads images from LAION URLs, videos from
+    WebVid URLs, and audio from AudioSet YouTube IDs, then writes
+    JSONL files with **local file paths** ready for
+    ``train_multimodal.py``.
+
+    Also copies text pairs from *source_dir* for the text branch of
+    Stage 3 training.
+
+    Args:
+        source_dir: Stage 2 data directory containing multimodal_pairs.jsonl.
+        output_dir: Output directory for Stage 3 data.
+        max_images: Maximum number of images to download.
+        max_audio: Maximum audio samples to download from AudioSet/YouTube.
+        max_video: Maximum video samples to download from WebVid.
+        download_workers: Number of parallel download threads.
+        timeout: HTTP timeout per download in seconds.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    source = Path(source_dir)
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+
+    mm_file = source / "multimodal_pairs.jsonl"
+    if not mm_file.exists():
+        logger.error(f"multimodal_pairs.jsonl not found in {source_dir}")
+        raise FileNotFoundError(mm_file)
+
+    # ── Parse existing multimodal pairs ──
+    image_records = []
+    audio_records = []
+    video_records = []
+    code_records = []
+
+    logger.info(f"Reading multimodal pairs from {mm_file}...")
+    with open(mm_file) as f:
+        for line in f:
+            record = json.loads(line.strip())
+            modality = record.get("modality", "text")
+            if modality == "image" and record.get("image_url"):
+                image_records.append(record)
+            elif modality == "audio":
+                audio_records.append(record)
+            elif modality == "video":
+                video_records.append(record)
+            else:
+                code_records.append(record)
+
+    logger.info(
+        f"Found: {len(image_records)} image, {len(audio_records)} audio, "
+        f"{len(video_records)} video, {len(code_records)} code/text"
+    )
+
+    # ── Download images ──
+    image_dir = output / "images"
+    image_dir.mkdir(parents=True, exist_ok=True)
+
+    image_records = image_records[:max_images]
+    image_text_pairs = []
+    failed = 0
+
+    logger.info(f"Downloading {len(image_records)} images with {download_workers} workers...")
+
+    def _download_one(idx_record):
+        idx, record = idx_record
+        url = record["image_url"]
+        ext = Path(url).suffix.split("?")[0]
+        if ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"):
+            ext = ".jpg"
+        filename = f"{idx:08d}{ext}"
+        dest = image_dir / filename
+        ok = _download_image(url, dest, timeout=timeout)
+        if ok:
+            return {
+                "image_path": filename,
+                "caption": record["query"],
+                "domain": record.get("domain", "image_text"),
+            }
+        return None
+
+    with ThreadPoolExecutor(max_workers=download_workers) as pool:
+        futures = {
+            pool.submit(_download_one, (i, rec)): i
+            for i, rec in enumerate(image_records)
+        }
+        for i, future in enumerate(as_completed(futures)):
+            result = future.result()
+            if result:
+                image_text_pairs.append(result)
+            else:
+                failed += 1
+
+            if (i + 1) % 5000 == 0 or i + 1 == len(futures):
+                logger.info(
+                    f"Image download progress: {i + 1}/{len(image_records)} "
+                    f"({len(image_text_pairs)} ok, {failed} failed)"
+                )
+
+    # Save image-text JSONL
+    image_jsonl = output / "image_text_pairs.jsonl"
+    with open(image_jsonl, "w") as f:
+        for pair in image_text_pairs:
+            f.write(json.dumps(pair, ensure_ascii=False) + "\n")
+    logger.info(f"Saved {len(image_text_pairs)} image-text pairs to {image_jsonl}")
+
+    # ── Download videos (WebVid direct URLs) ──
+    video_text_pairs = []
+    video_failed = 0
+    if max_video > 0 and video_records:
+        vid_dir = output / "videos"
+        vid_dir.mkdir(parents=True, exist_ok=True)
+        video_records = video_records[:max_video]
+
+        logger.info(
+            f"Downloading {len(video_records)} videos with {download_workers} workers..."
+        )
+
+        def _download_one_video(idx_record):
+            idx, record = idx_record
+            url = record.get("video_url", "")
+            if not url:
+                return None
+            ext = Path(url).suffix.split("?")[0]
+            if ext not in (".mp4", ".webm", ".avi", ".mkv", ".mov"):
+                ext = ".mp4"
+            filename = f"{idx:08d}{ext}"
+            dest = vid_dir / filename
+            ok = _download_video(url, dest, timeout=30)
+            if ok:
+                return {
+                    "video_path": filename,
+                    "caption": record["query"],
+                    "domain": record.get("domain", "video_text"),
+                }
+            return None
+
+        with ThreadPoolExecutor(max_workers=download_workers) as pool:
+            futures = {
+                pool.submit(_download_one_video, (i, rec)): i
+                for i, rec in enumerate(video_records)
+            }
+            for i, future in enumerate(as_completed(futures)):
+                result = future.result()
+                if result:
+                    video_text_pairs.append(result)
+                else:
+                    video_failed += 1
+                if (i + 1) % 2000 == 0 or i + 1 == len(futures):
+                    logger.info(
+                        f"Video download progress: {i + 1}/{len(video_records)} "
+                        f"({len(video_text_pairs)} ok, {video_failed} failed)"
+                    )
+
+        video_jsonl = output / "video_text_pairs.jsonl"
+        with open(video_jsonl, "w") as f:
+            for pair in video_text_pairs:
+                f.write(json.dumps(pair, ensure_ascii=False) + "\n")
+        logger.info(f"Saved {len(video_text_pairs)} video-text pairs to {video_jsonl}")
+    else:
+        logger.info("Skipping video download (max_video=0 or no video records)")
+
+    # ── Download audio (AudioSet → YouTube via yt-dlp) ──
+    audio_text_pairs = []
+    audio_failed = 0
+    if max_audio > 0 and audio_records:
+        aud_dir = output / "audio"
+        aud_dir.mkdir(parents=True, exist_ok=True)
+        audio_records = audio_records[:max_audio]
+
+        # Check yt-dlp is available
+        import shutil as _shutil
+
+        if _shutil.which("yt-dlp") is None:
+            logger.warning(
+                "yt-dlp not found — installing via pip for AudioSet download..."
+            )
+            import subprocess
+
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "yt-dlp"],
+                check=True,
+                capture_output=True,
+            )
+
+        logger.info(
+            f"Downloading {len(audio_records)} audio clips from YouTube "
+            f"(AudioSet) with {max(download_workers // 2, 1)} workers..."
+        )
+
+        def _download_one_audio(idx_record):
+            idx, record = idx_record
+            video_id = record.get("audio_id", "")
+            if not video_id:
+                return None
+            filename = f"{idx:08d}.wav"
+            dest = aud_dir / filename
+            ok = _download_audio_from_youtube(video_id, dest, timeout=60)
+            if ok:
+                return {
+                    "audio_path": filename,
+                    "caption": record["query"],
+                    "domain": record.get("domain", "audio_text"),
+                }
+            return None
+
+        # Fewer workers for yt-dlp (heavier, rate-limited)
+        audio_workers = max(download_workers // 2, 1)
+        with ThreadPoolExecutor(max_workers=audio_workers) as pool:
+            futures = {
+                pool.submit(_download_one_audio, (i, rec)): i
+                for i, rec in enumerate(audio_records)
+            }
+            for i, future in enumerate(as_completed(futures)):
+                result = future.result()
+                if result:
+                    audio_text_pairs.append(result)
+                else:
+                    audio_failed += 1
+                if (i + 1) % 1000 == 0 or i + 1 == len(futures):
+                    logger.info(
+                        f"Audio download progress: {i + 1}/{len(audio_records)} "
+                        f"({len(audio_text_pairs)} ok, {audio_failed} failed)"
+                    )
+
+        audio_jsonl = output / "audio_text_pairs.jsonl"
+        with open(audio_jsonl, "w") as f:
+            for pair in audio_text_pairs:
+                f.write(json.dumps(pair, ensure_ascii=False) + "\n")
+        logger.info(f"Saved {len(audio_text_pairs)} audio-text pairs to {audio_jsonl}")
+    else:
+        logger.info("Skipping audio download (max_audio=0 or no audio records)")
+
+    # ── Copy text pairs from Stage 2 (for text branch of training) ──
+    text_src = source / "train.jsonl"
+    text_dst = output / "text_pairs.jsonl"
+    text_count = 0
+    if text_src.exists():
+        import shutil
+
+        shutil.copy2(text_src, text_dst)
+        with open(text_dst) as f:
+            text_count = sum(1 for _ in f)
+        logger.info(f"Copied {text_count} text pairs from {text_src}")
+    else:
+        logger.warning(f"No text pairs found at {text_src}")
+
+    # ── Code pairs (already text-only, just save) ──
+    if code_records:
+        code_jsonl = output / "code_pairs.jsonl"
+        with open(code_jsonl, "w") as f:
+            for rec in code_records:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        logger.info(f"Saved {len(code_records)} code pairs to {code_jsonl}")
+
+    # ── Summary ──
+    stats = {
+        "stage": 3,
+        "image_text_pairs": len(image_text_pairs),
+        "image_download_failed": failed,
+        "video_text_pairs": len(video_text_pairs),
+        "video_download_failed": video_failed,
+        "audio_text_pairs": len(audio_text_pairs),
+        "audio_download_failed": audio_failed,
+        "code_pairs": len(code_records),
+        "text_pairs": text_count,
+    }
+    stats_file = output / "dataset_stats.json"
+    with open(stats_file, "w") as f:
+        json.dump(stats, f, indent=2)
+    logger.info(f"Stage 3 data build complete: {stats}")
+
+
 def build_stage_dataset(
     stage: int,
     output_dir: Path,
@@ -1088,9 +1496,9 @@ def main():
     parser.add_argument(
         "--stage",
         type=int,
-        choices=[1, 2],
+        choices=[1, 2, 3],
         required=True,
-        help="Training stage (1=retrieval, 2=generalist)",
+        help="Training stage (1=retrieval, 2=generalist, 3=multimodal)",
     )
     parser.add_argument(
         "--output-dir",
@@ -1148,21 +1556,63 @@ def main():
         help="Path to directory of custom JSONL files (each line: "
         '{"query": ..., "positive": ...}). Recursively discovers .jsonl files.',
     )
+    parser.add_argument(
+        "--source-dir",
+        type=str,
+        default=None,
+        help="Source data directory for Stage 3 (contains multimodal_pairs.jsonl "
+        "from Stage 2 build). Required when --stage 3.",
+    )
+    parser.add_argument(
+        "--max-images",
+        type=int,
+        default=100_000,
+        help="Maximum number of images to download for Stage 3.",
+    )
+    parser.add_argument(
+        "--max-video",
+        type=int,
+        default=10_000,
+        help="Maximum number of videos to download for Stage 3 (WebVid).",
+    )
+    parser.add_argument(
+        "--max-audio",
+        type=int,
+        default=20_000,
+        help="Maximum number of audio clips to download for Stage 3 (AudioSet/YouTube).",
+    )
+    parser.add_argument(
+        "--download-workers",
+        type=int,
+        default=16,
+        help="Number of parallel download threads for Stage 3 media.",
+    )
 
     args = parser.parse_args()
 
-    build_stage_dataset(
-        stage=args.stage,
-        output_dir=args.output_dir,
-        multimodal=args.multimodal,
-        target_size=args.target,
-        teacher_model=args.teacher_model,
-        max_samples_per_dataset=args.max_samples_per_dataset,
-        num_negatives=args.num_negatives,
-        threshold_ratio=args.threshold_ratio,
-        add_synthetic=args.add_synthetic,
-        add_custom=args.add_custom,
-    )
+    if args.stage == 3:
+        source = args.source_dir or "data/stage2_55M"
+        build_stage3_multimodal(
+            source_dir=source,
+            output_dir=str(args.output_dir),
+            max_images=args.max_images,
+            max_video=args.max_video,
+            max_audio=args.max_audio,
+            download_workers=args.download_workers,
+        )
+    else:
+        build_stage_dataset(
+            stage=args.stage,
+            output_dir=args.output_dir,
+            multimodal=args.multimodal,
+            target_size=args.target,
+            teacher_model=args.teacher_model,
+            max_samples_per_dataset=args.max_samples_per_dataset,
+            num_negatives=args.num_negatives,
+            threshold_ratio=args.threshold_ratio,
+            add_synthetic=args.add_synthetic,
+            add_custom=args.add_custom,
+        )
 
 
 if __name__ == "__main__":

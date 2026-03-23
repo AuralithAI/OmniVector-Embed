@@ -128,21 +128,39 @@ fi
 if [ "$NEED_NIGHTLY" = true ]; then
     echo "  Installing project (preserving PyTorch nightly)..."
     pip install --no-deps -e "."
-    pip install --no-deps -e ".[dev,test,vision]" 2>/dev/null || true
+    pip install --no-deps -e ".[dev,test,vision,multimodal]" 2>/dev/null || true
     # Install all non-torch dependencies from pyproject.toml
     pip install "transformers==4.44.2" "peft==0.12.0" "accelerate>=0.27.0" \
         "numpy>=1.24.0" "pydantic>=2.0.0" "pillow>=9.0.0" "einops>=0.7.0" \
         "tensorboard>=2.14.0" "onnx>=1.16.0" "onnxruntime>=1.18.0" \
         "onnxscript>=0.1.0" "optimum[onnxruntime]>=1.21.0" "deepspeed>=0.14.0" \
         "faiss-cpu>=1.8.0" "mteb>=1.12.0" "datasets>=2.16.0" "pyarrow>=14.0.0" \
-        "tqdm>=4.66.0" "pyyaml>=6.0" "sentence-transformers>=3.0.0" \
+        "tqdm>=4.66.0" "pyyaml>=6.0" "requests>=2.31.0" \
+        "sentence-transformers>=3.0.0" \
         "ruff>=0.3.0" "mypy>=1.8.0" "pre-commit>=3.6.0" \
         "pytest>=7.4.0" "pytest-cov>=4.1.0" "pytest-xdist>=3.5.0" \
         "pytest-timeout>=2.1.0"
 else
-    pip install -e ".[dev,test,vision]"
+    pip install -e ".[dev,test,vision,multimodal]"
 fi
 pip install deepspeed
+
+# Stage 3 needs yt-dlp (audio download) and ffmpeg (audio conversion)
+pip install yt-dlp
+if command -v ffmpeg &>/dev/null; then
+    echo "  ffmpeg found: $(ffmpeg -version 2>&1 | head -1)"
+else
+    echo "  Installing ffmpeg (required for audio extraction)..."
+    if [ "$PLATFORM" = "linux" ]; then
+        if command -v apt-get &>/dev/null; then
+            sudo apt-get install -y ffmpeg 2>/dev/null || echo "  WARNING: ffmpeg install failed — audio download will be skipped"
+        elif command -v dnf &>/dev/null; then
+            sudo dnf install -y ffmpeg 2>/dev/null || echo "  WARNING: ffmpeg install failed"
+        fi
+    elif [ "$PLATFORM" = "mac" ]; then
+        brew install ffmpeg 2>/dev/null || echo "  WARNING: ffmpeg install failed"
+    fi
+fi
 
 # Verify GPU
 echo ""
@@ -205,6 +223,23 @@ python scripts/mine_hard_negatives.py \
     --output-dir data/hard_negatives
 
 echo "  Hard negative mining complete."
+sleep 30
+
+# Stage 3 data: download multimodal media from LAION URLs collected in Stage 2
+echo ""
+echo "============================================"
+echo "  Building Stage 3 multimodal dataset..."
+echo "============================================"
+python scripts/build_dataset.py \
+    --stage 3 \
+    --source-dir data/stage2_55M \
+    --output-dir data/stage3_multimodal \
+    --max-images 100000 \
+    --max-video 10000 \
+    --max-audio 20000 \
+    --download-workers 16
+
+echo "  Stage 3 data build complete."
 sleep 30
 
 

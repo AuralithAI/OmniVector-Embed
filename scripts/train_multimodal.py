@@ -150,43 +150,55 @@ def load_config(config_path: str) -> dict:
         return yaml.safe_load(f)
 
 
-def build_samples(args) -> list:
+def build_samples(args, config: dict | None = None) -> list:
     """Build multimodal training samples from data sources.
+
+    Reads data paths from CLI args first, then falls back to the YAML
+    config's ``data_config`` section.  All data paths must point to files
+    produced by ``build_dataset.py --stage 3``, which downloads media and
+    creates JSONL files with local paths.
 
     Args:
         args: Parsed command-line arguments.
+        config: Parsed YAML config dictionary (optional).
 
     Returns:
         List of MultimodalSample objects.
     """
-    from omnivector.data.multimodal_dataset import Modality, MultimodalSample
+    import json as _json
 
+    from omnivector.data.multimodal_dataset import Modality, MultimodalSample
+    from omnivector.data.schema import EmbeddingPair
+
+    data_config = (config or {}).get("data_config", {})
     samples = []
 
-    # Load text pairs
-    if args.text_data:
-        import json
+    # ── Text pairs ──
+    text_data = args.text_data or data_config.get("text_data")
+    if text_data:
+        path = Path(text_data)
+        if not path.exists():
+            logger.error(f"Text data file not found: {path}")
+            sys.exit(1)
+        count = 0
+        with open(path) as f:
+            for line in f:
+                record = _json.loads(line.strip())
+                pair = EmbeddingPair.from_dict(record)
+                samples.append(MultimodalSample.from_embedding_pair(pair))
+                count += 1
+        logger.info(f"Loaded {count} text samples from {path}")
 
-        path = Path(args.text_data)
-        if path.exists():
-            with open(path) as f:
-                for line in f:
-                    record = json.loads(line.strip())
-                    from omnivector.data.schema import EmbeddingPair
-
-                    pair = EmbeddingPair.from_dict(record)
-                    samples.append(MultimodalSample.from_embedding_pair(pair))
-
-            logger.info(f"Loaded {len(samples)} text samples from {path}")
-
-    # Load image-text pairs
+    # ── Image-text pairs ──
+    image_data = args.image_data or data_config.get("image_data")
+    image_dir = args.image_dir or data_config.get("image_dir")
     text_count = len(samples)
-    if args.image_data:
+    if image_data and Path(image_data).exists():
         from omnivector.data.loaders.multimodal import ImageTextLoader
 
         loader = ImageTextLoader(
-            dataset_path=args.image_data,
-            image_dir=args.image_dir,
+            dataset_path=image_data,
+            image_dir=image_dir,
             format="jsonl",
             max_samples=args.max_samples,
         )
@@ -198,17 +210,18 @@ def build_samples(args) -> list:
                     negatives=pair.get("negative_captions", []),
                 )
             )
-
         logger.info(f"Loaded {len(samples) - text_count} image-text samples")
 
     # Load video-text pairs
+    video_data = args.video_data or data_config.get("video_data")
+    video_dir = args.video_dir or data_config.get("video_dir")
     img_count = len(samples)
-    if args.video_data:
+    if video_data and Path(video_data).exists():
         from omnivector.data.loaders.multimodal import VideoTextLoader
 
         loader = VideoTextLoader(
-            dataset_path=args.video_data,
-            video_dir=args.video_dir,
+            dataset_path=video_data,
+            video_dir=video_dir,
             format="jsonl",
             max_samples=args.max_samples,
             num_frames=args.num_frames,
@@ -221,39 +234,36 @@ def build_samples(args) -> list:
                     negatives=pair.get("negative_captions", []),
                 )
             )
-
         logger.info(f"Loaded {len(samples) - img_count} video-text samples")
 
     # Load audio-text pairs
+    audio_data = args.audio_data or data_config.get("audio_data")
+    audio_dir = args.audio_dir or data_config.get("audio_dir")
     audio_count = len(samples)
-    if args.audio_data:
-        import json as _json
+    if audio_data and Path(audio_data).exists():
+        audio_path = Path(audio_data)
+        with open(audio_path) as f:
+            for line in f:
+                record = _json.loads(line.strip())
+                audio_file = record.get("audio_path", record.get("audio", ""))
+                caption = record.get("caption", record.get("text", ""))
 
-        audio_path = Path(args.audio_data)
-        if audio_path.exists():
-            with open(audio_path) as f:
-                for line in f:
-                    record = _json.loads(line.strip())
-                    audio_file = record.get("audio_path", record.get("audio", ""))
-                    caption = record.get("caption", record.get("text", ""))
+                if audio_dir and audio_file:
+                    audio_file = str(Path(audio_dir) / audio_file)
 
-                    if args.audio_dir and audio_file:
-                        audio_file = str(Path(args.audio_dir) / audio_file)
-
-                    if caption:
-                        samples.append(
-                            MultimodalSample(
-                                query_text=caption,
-                                positive_text=caption,
-                                negatives=record.get("negative_captions", []),
-                                query_instruction="Describe the audio",
-                                domain="audio_text",
-                                modality=Modality.AUDIO,
-                                audio_path=audio_file,
-                            )
+                if caption:
+                    samples.append(
+                        MultimodalSample(
+                            query_text=caption,
+                            positive_text=caption,
+                            negatives=record.get("negative_captions", []),
+                            query_instruction="Describe the audio",
+                            domain="audio_text",
+                            modality=Modality.AUDIO,
+                            audio_path=audio_file,
                         )
-
-            logger.info(f"Loaded {len(samples) - audio_count} audio-text samples")
+                    )
+        logger.info(f"Loaded {len(samples) - audio_count} audio-text samples")
 
     if args.max_samples and len(samples) > args.max_samples:
         import random
@@ -303,7 +313,7 @@ def main() -> None:
         tokenizer.pad_token = tokenizer.eos_token
 
     # Build dataset
-    samples = build_samples(args)
+    samples = build_samples(args, config=config)
 
     if not samples:
         logger.error(
@@ -336,6 +346,13 @@ def main() -> None:
     # Resolve resume checkpoint: CLI --resume overrides YAML config
     resume_checkpoint = args.resume or training_config.get("resume_from_checkpoint")
 
+    # Resolve DeepSpeed config
+    ds_config = config.get("deepspeed")
+    if ds_config and Path(ds_config).exists():
+        ds_path = ds_config
+    else:
+        ds_path = None
+
     training_args = TrainingArguments(
         output_dir=args.output_dir,
         num_train_epochs=training_config.get("num_train_epochs", 1),
@@ -356,6 +373,7 @@ def main() -> None:
         save_total_limit=training_config.get("save_total_limit", 3),
         remove_unused_columns=False,
         dataloader_num_workers=training_config.get("dataloader_num_workers", 4),
+        deepspeed=ds_path,
         resume_from_checkpoint=resume_checkpoint,
     )
 

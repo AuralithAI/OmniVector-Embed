@@ -51,6 +51,7 @@ dependencies = [
     "pyarrow>=14.0.0",
     "tqdm>=4.66.0",
     "pyyaml>=6.0",
+    "requests>=2.31.0",
     "open_clip_torch>=2.24.0",
 ]
 
@@ -89,6 +90,13 @@ test = [
 ]
 vision = [
     "timm>=0.9.0",
+]
+multimodal = [
+    "yt-dlp>=2024.1.0",
+    "timm>=0.9.0",
+    "librosa>=0.10.0",
+    "soundfile>=0.12.0",
+    "opencv-python>=4.8.0",
 ]
 
 [project.urls]
