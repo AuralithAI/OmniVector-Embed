@@ -125,6 +125,27 @@ def download_and_extract_zips(
     output_audio_dir.mkdir(parents=True, exist_ok=True)
     extracted = set()
 
+    # Check what's already extracted — skip download if we have enough
+    existing = {
+        f.name for f in output_audio_dir.iterdir()
+        if f.is_file() and f.suffix.lower() in (".flac", ".wav", ".mp3")
+    }
+    if needed_files:
+        already_have = existing & needed_files
+        if len(already_have) >= len(needed_files):
+            logger.info(
+                f"  Already have {len(already_have)}/{len(needed_files)} "
+                f"audio files for {source_name} — skipping download"
+            )
+            return already_have
+        logger.info(
+            f"  Found {len(already_have)}/{len(needed_files)} already on disk, "
+            f"need {len(needed_files) - len(already_have)} more"
+        )
+    elif existing:
+        logger.info(f"  Found {len(existing)} audio files already on disk")
+    extracted = set(existing)
+
     for i, zip_filename in enumerate(zip_files):
         logger.info(
             f"Downloading zip {i + 1}/{len(zip_files)}: {zip_filename}..."
@@ -142,53 +163,117 @@ def download_and_extract_zips(
         # Extract FLAC files
         try:
             with zipfile.ZipFile(zip_path, "r") as zf:
-                for name in zf.namelist():
+                audio_names = [
+                    n for n in zf.namelist()
+                    if Path(n).name and Path(n).name.endswith((".flac", ".wav", ".mp3"))
+                    and (not needed_files or Path(n).name in needed_files)
+                ]
+                total = len(audio_names)
+                logger.info(f"Extracting {total} audio files from {zip_filename}...")
+                for idx, name in enumerate(audio_names):
                     basename = Path(name).name
-                    if not basename or not basename.endswith((".flac", ".wav", ".mp3")):
-                        continue
-                    if needed_files and basename not in needed_files:
-                        continue
 
                     dest = output_audio_dir / basename
                     if dest.exists():
                         extracted.add(basename)
-                        continue
+                    else:
+                        with zf.open(name) as src, open(dest, "wb") as dst:
+                            dst.write(src.read())
+                        extracted.add(basename)
 
-                    # Extract single file
-                    with zf.open(name) as src, open(dest, "wb") as dst:
-                        dst.write(src.read())
-                    extracted.add(basename)
+                    if (idx + 1) % 1000 == 0 or (idx + 1) == total:
+                        logger.info(
+                            f"  [{source_name}] Extracted {idx + 1}/{total} "
+                            f"({len(extracted)} total so far)"
+                        )
 
         except zipfile.BadZipFile:
-            logger.warning(f"Bad zip file: {zip_filename}, trying fix...")
-            # WavCaps README says: zip -F file.zip --out fixed.zip
+            logger.warning(f"Bad zip file: {zip_filename}, trying zip -F fix...")
             import subprocess
 
             fixed_path = str(zip_path) + ".fixed.zip"
-            result = subprocess.run(
-                ["zip", "-F", zip_path, "--out", fixed_path],
-                capture_output=True,
-            )
-            if result.returncode == 0 and Path(fixed_path).exists():
+            try:
+                # Stream output so user sees progress on large files
+                proc = subprocess.run(
+                    ["zip", "-F", zip_path, "--out", fixed_path],
+                    timeout=600,  # 10 min max
+                )
+                fix_ok = proc.returncode == 0 and Path(fixed_path).exists()
+            except FileNotFoundError:
+                logger.warning("'zip' command not found — install with: apt-get install -y zip")
+                fix_ok = False
+            except subprocess.TimeoutExpired:
+                logger.warning("zip -F timed out after 10 minutes")
+                fix_ok = False
+
+            if fix_ok:
+                logger.info(f"zip -F succeeded, extracting from fixed archive...")
                 try:
                     with zipfile.ZipFile(fixed_path, "r") as zf:
-                        for name in zf.namelist():
-                            basename = Path(name).name
-                            if not basename or not basename.endswith(
+                        audio_names = [
+                            n for n in zf.namelist()
+                            if Path(n).name and Path(n).name.endswith(
                                 (".flac", ".wav", ".mp3")
-                            ):
-                                continue
-                            if needed_files and basename not in needed_files:
-                                continue
+                            )
+                            and (not needed_files or Path(n).name in needed_files)
+                        ]
+                        total = len(audio_names)
+                        logger.info(f"  Fixed zip contains {total} audio files")
+                        for idx, name in enumerate(audio_names):
+                            basename = Path(name).name
                             dest = output_audio_dir / basename
                             if not dest.exists():
                                 with zf.open(name) as src, open(dest, "wb") as dst:
                                     dst.write(src.read())
                             extracted.add(basename)
+
+                            if (idx + 1) % 1000 == 0 or (idx + 1) == total:
+                                logger.info(
+                                    f"  [{source_name}] Fixed-zip extract {idx + 1}/{total} "
+                                    f"({len(extracted)} total so far)"
+                                )
                 except Exception as e2:
                     logger.warning(f"Fixed zip also failed: {e2}")
             else:
-                logger.warning(f"zip -F failed for {zip_filename}")
+                logger.warning(
+                    f"zip -F failed for {zip_filename}, "
+                    f"trying raw extraction with unzip..."
+                )
+                # Fallback: use unzip which is more lenient with bad central dirs
+                try:
+                    extract_tmp = output_audio_dir / "_unzip_tmp"
+                    extract_tmp.mkdir(exist_ok=True)
+                    logger.info(f"  Running unzip to {extract_tmp}...")
+                    proc = subprocess.run(
+                        ["unzip", "-o", "-q", zip_path, "-d", str(extract_tmp)],
+                        timeout=600,
+                    )
+                    # Move audio files out of tmp dir
+                    audio_files = [
+                        f for f in extract_tmp.rglob("*")
+                        if f.is_file() and f.suffix.lower() in (".flac", ".wav", ".mp3")
+                    ]
+                    total = len(audio_files)
+                    logger.info(f"  unzip extracted {total} audio files, moving...")
+                    for idx, f in enumerate(audio_files):
+                        basename = f.name
+                        if needed_files and basename not in needed_files:
+                            continue
+                        dest = output_audio_dir / basename
+                        if not dest.exists():
+                            f.rename(dest)
+                        extracted.add(basename)
+
+                        if (idx + 1) % 1000 == 0 or (idx + 1) == total:
+                            logger.info(
+                                f"  [{source_name}] unzip move {idx + 1}/{total} "
+                                f"({len(extracted)} total so far)"
+                            )
+                    # Cleanup tmp
+                    import shutil
+                    shutil.rmtree(extract_tmp, ignore_errors=True)
+                except Exception as e3:
+                    logger.warning(f"unzip fallback also failed: {e3}")
 
         if needed_files and len(extracted) >= len(needed_files):
             logger.info(f"All needed files extracted ({len(extracted)})")
