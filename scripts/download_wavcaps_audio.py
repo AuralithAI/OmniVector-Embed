@@ -335,8 +335,11 @@ def collect_existing_wavcaps(
             break
 
         try:
+            import time
+
             from huggingface_hub import hf_hub_download
 
+            t0 = time.time()
             logger.info(f"  Downloading {source_name} metadata...")
             json_path = hf_hub_download(
                 repo_id="cvssp/WavCaps",
@@ -344,7 +347,12 @@ def collect_existing_wavcaps(
                 repo_type="dataset",
                 cache_dir=str(cache_dir / "hf_cache"),
             )
+            logger.info(
+                f"  Downloaded {source_name} metadata in "
+                f"{time.time() - t0:.1f}s"
+            )
 
+            t1 = time.time()
             logger.info(f"  Parsing {source_name} JSON...")
             with open(json_path) as f:
                 data = json.load(f)
@@ -353,18 +361,21 @@ def collect_existing_wavcaps(
                 data.get("data", data) if isinstance(data, dict) else data
             )
             logger.info(
-                f"  Loaded {len(records)} metadata from {source_name}, "
-                f"matching against {len(existing_flacs)} files on disk..."
+                f"  Loaded {len(records)} metadata from {source_name} "
+                f"in {time.time() - t1:.1f}s, matching against "
+                f"{len(existing_flacs)} files on disk..."
             )
 
             matched = 0
             scanned = 0
+            # Log every ~10% of records (min 1000, max 50000)
+            log_interval = max(1000, min(50000, len(records) // 10))
             for rec in records:
                 if len(pairs) >= max_samples:
                     break
 
                 scanned += 1
-                if scanned % 50000 == 0:
+                if scanned % log_interval == 0:
                     logger.info(
                         f"    [{source_name}] Scanned {scanned}/{len(records)} "
                         f"records, {matched} matches so far"
