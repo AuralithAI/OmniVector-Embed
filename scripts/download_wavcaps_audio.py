@@ -198,9 +198,22 @@ def download_peoples_speech(
     pairs = []
     count = 0
     skipped = 0
+    scanned = 0
     for sample in ds:
         if count >= max_samples:
             break
+
+        scanned += 1
+        if scanned <= 20 and scanned % 5 == 0:
+            logger.info(
+                f"  [People's Speech] Scanned {scanned} records so far "
+                f"(saved {count}, skipped {skipped})"
+            )
+        elif scanned <= 100 and scanned % 25 == 0:
+            logger.info(
+                f"  [People's Speech] Scanned {scanned} records so far "
+                f"(saved {count}, skipped {skipped})"
+            )
 
         text = sample.get("text", "").strip()
         audio_data = sample.get("audio", {})
@@ -248,10 +261,15 @@ def download_peoples_speech(
         })
         count += 1
 
-        if count % 1000 == 0:
+        if count == 1:
+            logger.info(
+                f"  [People's Speech] First sample saved successfully "
+                f"(scanned {scanned}, skipped {skipped}). Streaming..."
+            )
+        elif count % 500 == 0:
             logger.info(
                 f"  [People's Speech] Saved {count}/{max_samples} "
-                f"(skipped {skipped} short/empty clips)"
+                f"(scanned {scanned}, skipped {skipped})"
             )
 
     logger.info(
@@ -319,6 +337,7 @@ def collect_existing_wavcaps(
         try:
             from huggingface_hub import hf_hub_download
 
+            logger.info(f"  Downloading {source_name} metadata...")
             json_path = hf_hub_download(
                 repo_id="cvssp/WavCaps",
                 filename=f"{src['json_dir']}/{src['json_file']}",
@@ -326,6 +345,7 @@ def collect_existing_wavcaps(
                 cache_dir=str(cache_dir / "hf_cache"),
             )
 
+            logger.info(f"  Parsing {source_name} JSON...")
             with open(json_path) as f:
                 data = json.load(f)
 
@@ -333,13 +353,22 @@ def collect_existing_wavcaps(
                 data.get("data", data) if isinstance(data, dict) else data
             )
             logger.info(
-                f"  Loaded {len(records)} metadata from {source_name}"
+                f"  Loaded {len(records)} metadata from {source_name}, "
+                f"matching against {len(existing_flacs)} files on disk..."
             )
 
             matched = 0
+            scanned = 0
             for rec in records:
                 if len(pairs) >= max_samples:
                     break
+
+                scanned += 1
+                if scanned % 50000 == 0:
+                    logger.info(
+                        f"    [{source_name}] Scanned {scanned}/{len(records)} "
+                        f"records, {matched} matches so far"
+                    )
 
                 caption = rec.get("caption", "") or rec.get(
                     "raw_description", ""
@@ -371,7 +400,8 @@ def collect_existing_wavcaps(
                     matched += 1
 
             logger.info(
-                f"  [{source_name}] Matched {matched} captions to files"
+                f"  [{source_name}] Scanned {scanned} records, "
+                f"matched {matched} captions to files on disk"
             )
 
         except Exception as e:
