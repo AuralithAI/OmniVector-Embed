@@ -180,6 +180,9 @@ def build_samples(args, config: dict | None = None) -> list:
         if not path.exists():
             logger.error(f"Text data file not found: {path}")
             sys.exit(1)
+        import os
+        file_size_gb = os.path.getsize(path) / (1024 ** 3)
+        logger.info(f"Loading text data from {path} ({file_size_gb:.1f} GB)...")
         count = 0
         with open(path) as f:
             for line in f:
@@ -187,7 +190,9 @@ def build_samples(args, config: dict | None = None) -> list:
                 pair = EmbeddingPair.from_dict(record)
                 samples.append(MultimodalSample.from_embedding_pair(pair))
                 count += 1
-        logger.info(f"Loaded {count} text samples from {path}")
+                if count % 1_000_000 == 0:
+                    logger.info(f"  Loaded {count:,} text samples...")
+        logger.info(f"Loaded {count:,} text samples from {path}")
 
     # ── Image-text pairs ──
     image_data = args.image_data or data_config.get("image_data")
