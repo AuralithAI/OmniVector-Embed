@@ -175,6 +175,7 @@ def build_samples(args, config: dict | None = None) -> list:
 
     # ── Text pairs ──
     text_data = args.text_data or data_config.get("text_data")
+    max_text = data_config.get("max_text_samples")
     if text_data:
         path = Path(text_data)
         if not path.exists():
@@ -182,10 +183,15 @@ def build_samples(args, config: dict | None = None) -> list:
             sys.exit(1)
         import os
         file_size_gb = os.path.getsize(path) / (1024 ** 3)
-        logger.info(f"Loading text data from {path} ({file_size_gb:.1f} GB)...")
+        cap_msg = f", capped at {max_text:,}" if max_text else ""
+        logger.info(
+            f"Loading text data from {path} ({file_size_gb:.1f} GB{cap_msg})..."
+        )
         count = 0
         with open(path) as f:
             for line in f:
+                if max_text and count >= max_text:
+                    break
                 record = _json.loads(line.strip())
                 pair = EmbeddingPair.from_dict(record)
                 samples.append(MultimodalSample.from_embedding_pair(pair))

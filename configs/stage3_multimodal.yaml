@@ -91,5 +91,6 @@ data_config:
   audio_dir: data/stage3_multimodal/audio
   multimodal_ratio: 0.5
   max_seq_length: 512
+  max_text_samples: 500000  # Cap text data for Stage 3 — full 55M is OOM
 
 deepspeed: configs/deepspeed_zero2.json
