@@ -126,6 +126,12 @@ def parse_args() -> argparse.Namespace:
         help="Path to checkpoint directory to resume training from. "
         "Overrides resume_from_checkpoint in YAML config.",
     )
+    parser.add_argument(
+        "--local_rank",
+        type=int,
+        default=-1,
+        help="Local rank for distributed training (set by DeepSpeed launcher)",
+    )
     return parser.parse_args()
 
 
