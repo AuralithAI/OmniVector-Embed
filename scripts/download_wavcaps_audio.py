@@ -24,8 +24,12 @@ Output:
 import argparse
 import json
 import logging
+import os
 import numpy as np
 from pathlib import Path
+
+# Force HF datasets to use soundfile for audio decoding (not torchcodec)
+os.environ["HF_AUDIO_DECODER"] = "soundfile"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -103,10 +107,12 @@ def download_esc50(output_audio_dir: Path, max_samples: int) -> list[dict]:
         List of {audio_path, caption, domain} dicts.
     """
     import soundfile as sf
-    from datasets import load_dataset
+    from datasets import Audio, load_dataset
 
     logger.info("Loading ESC-50 dataset from HuggingFace (audio in parquet)...")
     ds = load_dataset("ashraq/esc50", split="train")
+    # Force soundfile backend — avoids torchcodec/FFmpeg dependency
+    ds = ds.cast_column("audio", Audio(sampling_rate=16000, decode=True))
     logger.info(f"  ESC-50 loaded: {len(ds)} samples")
 
     pairs = []
@@ -166,7 +172,7 @@ def download_peoples_speech(
         List of {audio_path, caption, domain} dicts.
     """
     import soundfile as sf
-    from datasets import load_dataset
+    from datasets import Audio, load_dataset
 
     logger.info("Loading People's Speech dataset (streaming mode)...")
     ds = load_dataset(
@@ -176,6 +182,8 @@ def download_peoples_speech(
         streaming=True,
         trust_remote_code=True,
     )
+    # Force soundfile backend — avoids torchcodec/FFmpeg dependency
+    ds = ds.cast_column("audio", Audio(sampling_rate=16000, decode=True))
     logger.info("  People's Speech stream opened, downloading samples...")
 
     pairs = []
