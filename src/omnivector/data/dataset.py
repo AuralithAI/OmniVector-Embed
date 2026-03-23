@@ -196,12 +196,17 @@ class EmbeddingDataCollator:
 
         for item in batch:
             negs = item["negatives"][:max_negs]
-            # Pad with empty if not enough negatives
+            # Pad with empty if not enough negatives — use [1, seq_len] shape
+            # to match the tokenizer output format so [0] indexing works below
             while len(negs) < max_negs:
                 negs.append(
                     {
-                        "input_ids": torch.zeros_like(query_batch["input_ids"][0]),
-                        "attention_mask": torch.zeros_like(query_batch["attention_mask"][0]),
+                        "input_ids": torch.zeros_like(
+                            query_batch["input_ids"][0]
+                        ).unsqueeze(0),
+                        "attention_mask": torch.zeros_like(
+                            query_batch["attention_mask"][0]
+                        ).unsqueeze(0),
                     }
                 )
 
