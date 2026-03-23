@@ -301,22 +301,34 @@ def main() -> None:
     from omnivector.training.multimodal_loss import MultimodalMRLLoss
     from omnivector.training.multimodal_trainer import MultimodalTrainer
 
+    # Resolve model config
+    model_config = config.get("model_config", {})
+    use_lora = model_config.get("use_lora", False)
+    lora_rank = model_config.get("lora_rank", 16)
+    lora_alpha = model_config.get("lora_alpha", 32)
+
     # Resolve audio encoder config
     audio_config = config.get("audio_config", {})
     audio_model_name = audio_config.get("model_name")
 
     # Load model
     if args.text_checkpoint:
-        logger.info(f"Loading from checkpoint: {args.text_checkpoint}")
+        logger.info(f"Loading from checkpoint: {args.text_checkpoint} (lora={use_lora})")
         model = OmniVectorModel.from_pretrained(
             args.text_checkpoint,
             audio_encoder=audio_model_name,
+            lora=use_lora,
+            lora_rank=lora_rank,
+            lora_alpha=lora_alpha,
         )
     else:
-        logger.info("Initializing fresh model")
+        logger.info(f"Initializing fresh model (lora={use_lora})")
         model = OmniVectorModel.from_pretrained(
             "mistralai/Mistral-7B-v0.1",
             audio_encoder=audio_model_name,
+            lora=use_lora,
+            lora_rank=lora_rank,
+            lora_alpha=lora_alpha,
         )
 
     tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-v0.1")

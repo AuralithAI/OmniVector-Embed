@@ -474,9 +474,13 @@ class OmniVectorModel(nn.Module):
                 )
 
         # Build backbone
+        lora_rank = kwargs.pop("lora_rank", 16)
+        lora_alpha = kwargs.pop("lora_alpha", 32)
         backbone = MistralEmbeddingBackbone(
             model_name=backbone_name,
             use_lora=lora,
+            lora_rank=lora_rank,
+            lora_alpha=lora_alpha,
         )
 
         # Build pooling
