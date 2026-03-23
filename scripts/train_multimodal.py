@@ -373,6 +373,7 @@ def main() -> None:
             training_config.get("fp16", False) if not training_config.get("bf16", False) else False
         ),
         gradient_checkpointing=training_config.get("gradient_checkpointing", True),
+        gradient_checkpointing_kwargs={"use_reentrant": False},
         logging_steps=training_config.get("logging_steps", 100),
         save_steps=training_config.get("save_steps", 1000),
         save_total_limit=training_config.get("save_total_limit", 3),
