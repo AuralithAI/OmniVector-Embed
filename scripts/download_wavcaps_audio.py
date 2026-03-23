@@ -106,13 +106,15 @@ def download_esc50(output_audio_dir: Path, max_samples: int) -> list[dict]:
     Returns:
         List of {audio_path, caption, domain} dicts.
     """
+    import io
+
     import soundfile as sf
     from datasets import Audio, load_dataset
 
     logger.info("Loading ESC-50 dataset from HuggingFace (audio in parquet)...")
+    # Load WITHOUT decoding audio — avoids torchcodec/FFmpeg dependency entirely
     ds = load_dataset("ashraq/esc50", split="train")
-    # Force soundfile backend — avoids torchcodec/FFmpeg dependency
-    ds = ds.cast_column("audio", Audio(sampling_rate=16000, decode=True))
+    ds = ds.cast_column("audio", Audio(decode=False))
     logger.info(f"  ESC-50 loaded: {len(ds)} samples")
 
     pairs = []
@@ -122,24 +124,29 @@ def download_esc50(output_audio_dir: Path, max_samples: int) -> list[dict]:
             break
 
         category = sample.get("category", "")
-        audio = sample.get("audio", {})
-        if not audio or not category:
+        audio_data = sample.get("audio", {})
+        if not audio_data or not category:
             continue
 
         caption = ESC50_CAPTIONS.get(
             category, f"The sound of {category.replace('_', ' ')}"
         )
-        array = audio.get("array")
-        sr = audio.get("sampling_rate", 16000)
 
-        if array is None or len(array) == 0:
+        # audio_data is {"bytes": b"...", "path": "..."} when decode=False
+        raw_bytes = audio_data.get("bytes")
+        if not raw_bytes:
             continue
 
-        # Save as WAV
+        # Save as WAV using soundfile to decode + re-encode
         filename = f"esc50_{idx:05d}.wav"
         filepath = output_audio_dir / filename
         if not filepath.exists():
-            sf.write(str(filepath), np.array(array, dtype=np.float32), sr)
+            try:
+                array, sr = sf.read(io.BytesIO(raw_bytes))
+                sf.write(str(filepath), array, sr)
+            except Exception as e:
+                logger.warning(f"  Failed to decode ESC-50 sample {idx}: {e}")
+                continue
 
         pairs.append({
             "audio_path": filename,
@@ -171,6 +178,8 @@ def download_peoples_speech(
     Returns:
         List of {audio_path, caption, domain} dicts.
     """
+    import io
+
     import soundfile as sf
     from datasets import Audio, load_dataset
 
@@ -182,8 +191,8 @@ def download_peoples_speech(
         streaming=True,
         trust_remote_code=True,
     )
-    # Force soundfile backend — avoids torchcodec/FFmpeg dependency
-    ds = ds.cast_column("audio", Audio(sampling_rate=16000, decode=True))
+    # Disable audio decoding — we decode with soundfile ourselves
+    ds = ds.cast_column("audio", Audio(decode=False))
     logger.info("  People's Speech stream opened, downloading samples...")
 
     pairs = []
@@ -194,16 +203,22 @@ def download_peoples_speech(
             break
 
         text = sample.get("text", "").strip()
-        audio = sample.get("audio", {})
+        audio_data = sample.get("audio", {})
 
         if not text or len(text) < 20:
             skipped += 1
             continue
 
-        array = audio.get("array")
-        sr = audio.get("sampling_rate", 16000)
+        # audio_data is {"bytes": b"...", "path": "..."} when decode=False
+        raw_bytes = audio_data.get("bytes")
+        if not raw_bytes:
+            skipped += 1
+            continue
 
-        if array is None or len(array) == 0:
+        # Decode with soundfile
+        try:
+            array, sr = sf.read(io.BytesIO(raw_bytes))
+        except Exception:
             skipped += 1
             continue
 
@@ -221,7 +236,7 @@ def download_peoples_speech(
         filename = f"speech_{count:06d}.wav"
         filepath = output_audio_dir / filename
         if not filepath.exists():
-            sf.write(str(filepath), np.array(array, dtype=np.float32), sr)
+            sf.write(str(filepath), array, sr)
 
         # Use transcript as caption with a prefix for variety
         caption = f"A person saying: {text}"
