@@ -346,10 +346,18 @@ def collect_existing_wavcaps(
                 filename=f"{src['json_dir']}/{src['json_file']}",
                 repo_type="dataset",
                 cache_dir=str(cache_dir / "hf_cache"),
+                force_download=False,
             )
+            elapsed = time.time() - t0
             logger.info(
-                f"  Downloaded {source_name} metadata in "
-                f"{time.time() - t0:.1f}s"
+                f"  Downloaded {source_name} metadata in {elapsed:.1f}s "
+                f"-> {json_path}"
+            )
+            # Sanity check file size
+            fsize = Path(json_path).stat().st_size
+            logger.info(
+                f"  {source_name} JSON file size: "
+                f"{fsize / 1024 / 1024:.1f} MB"
             )
 
             t1 = time.time()

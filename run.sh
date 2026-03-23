@@ -249,7 +249,7 @@ echo "  ── Downloading audio data (ESC-50 + People's Speech) ──"
 python scripts/download_wavcaps_audio.py \
     --output-dir data/stage3_multimodal \
     --max-samples 20000 \
-    --sources esc50 peoples_speech wavcaps_existing
+    --sources esc50 peoples_speech
 
 echo "  Audio download complete."
 sleep 10
