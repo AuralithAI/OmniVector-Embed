@@ -137,6 +137,7 @@ if [ "$NEED_NIGHTLY" = true ]; then
         "faiss-cpu>=1.8.0" "mteb>=1.12.0" "datasets>=2.16.0" "pyarrow>=14.0.0" \
         "tqdm>=4.66.0" "pyyaml>=6.0" "requests>=2.31.0" \
         "sentence-transformers>=3.0.0" \
+        "soundfile>=0.12.0" \
         "ruff>=0.3.0" "mypy>=1.8.0" "pre-commit>=3.6.0" \
         "pytest>=7.4.0" "pytest-cov>=4.1.0" "pytest-xdist>=3.5.0" \
         "pytest-timeout>=2.1.0"
@@ -242,15 +243,15 @@ python scripts/build_dataset.py \
 echo "  Stage 3 data build complete."
 sleep 30
 
-# Stage 3 audio: download from WavCaps (replaces broken AudioSet/YouTube approach)
+# Stage 3 audio: download from HF datasets (ESC-50 + People's Speech)
 echo ""
-echo "  ── Downloading WavCaps audio (FreeSound + BBC + SoundBible) ──"
+echo "  ── Downloading audio data (ESC-50 + People's Speech) ──"
 python scripts/download_wavcaps_audio.py \
     --output-dir data/stage3_multimodal \
     --max-samples 20000 \
-    --sources freesound bbc_sound_effects soundbible
+    --sources esc50 peoples_speech wavcaps_existing
 
-echo "  WavCaps audio download complete."
+echo "  Audio download complete."
 sleep 10
 
 
