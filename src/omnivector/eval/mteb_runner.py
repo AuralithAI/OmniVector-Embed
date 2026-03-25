@@ -285,26 +285,32 @@ class MTEBRunner:
 
         for task_name in task_names:
             try:
-                evaluation = mteb.MTEB(tasks=[task_name])
-                task_results = evaluation.run(
+                # MTEB 2.10+: use mteb.get_tasks + mteb.evaluate
+                task_objs = mteb.get_tasks(tasks=[task_name])
+                if not task_objs:
+                    logger.warning(f"  {task_name}: task not found in MTEB registry")
+                    all_results[task_name] = {"error": "task not found"}
+                    continue
+
+                logger.info(f"  Evaluating {task_name}...")
+                model_result = mteb.evaluate(
                     wrapper,
-                    output_folder=str(self.output_dir),
-                    eval_splits=["test"],
+                    tasks=task_objs,
+                    raise_error=False,
+                    encode_kwargs={"batch_size": self.batch_size},
+                    overwrite_strategy="always",
+                    cache=None,
                 )
 
-                # Extract numeric metrics
+                # Extract numeric metrics from ModelResult
                 metrics: dict[str, float] = {}
-                for result in task_results:
-                    if hasattr(result, "scores"):
-                        for _split_name, split_scores in result.scores.items():
+                for task_result in model_result.task_results:
+                    if hasattr(task_result, "scores"):
+                        for _split_name, split_scores in task_result.scores.items():
                             for score_dict in split_scores:
                                 for k, v in score_dict.items():
                                     if isinstance(v, (int, float)):
-                                        metrics[f"{k}"] = float(v)
-                    elif isinstance(result, dict):
-                        for k, v in result.items():
-                            if isinstance(v, (int, float)):
-                                metrics[k] = float(v)
+                                        metrics[k] = float(v)
 
                 all_results[task_name] = metrics
                 logger.info(f"  {task_name}: {metrics}")
