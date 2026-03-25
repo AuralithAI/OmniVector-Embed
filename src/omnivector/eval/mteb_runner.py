@@ -13,13 +13,18 @@ Usage::
     runner.print_summary(results)
 """
 
+from __future__ import annotations
+
 import json
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 import torch
+
+if TYPE_CHECKING:
+    from torch.utils.data import DataLoader
 
 logger = logging.getLogger(__name__)
 
@@ -129,9 +134,15 @@ BENCHMARK_TARGETS: dict[str, dict[str, float]] = {
 }
 
 
-# ── Wrapper that presents an OmniVectorModel to mteb ─────────────
+# ── Wrapper that presents an OmniVectorModel to mteb ──────
 class _MTEBModelWrapper:
-    """Thin adapter exposing the ``encode`` interface expected by mteb."""
+    """Adapter implementing the MTEB ``EncoderProtocol`` for OmniVectorModel.
+
+    MTEB requires:
+      - ``encode(inputs: DataLoader[BatchedInput], *, task_metadata, ...)``
+      - ``similarity`` / ``similarity_pairwise``
+      - ``mteb_model_meta`` property
+    """
 
     def __init__(
         self,
@@ -145,26 +156,126 @@ class _MTEBModelWrapper:
         self.batch_size = batch_size
         self.max_length = max_length
 
+        # Lazy-initialised ModelMeta — created once on first access
+        self._model_meta: Any | None = None
+
+    # -- mteb_model_meta (required by EncoderProtocol) ----------------
+    @property
+    def mteb_model_meta(self) -> Any:
+        if self._model_meta is None:
+            from mteb.models.model_meta import ModelMeta
+
+            self._model_meta = ModelMeta.create_empty(
+                overwrites={
+                    "name": "omnivector-embed",
+                    "revision": "local",
+                    "loader": None,  # already loaded
+                }
+            )
+        return self._model_meta
+
+    @mteb_model_meta.setter
+    def mteb_model_meta(self, value: Any) -> None:
+        self._model_meta = value
+
+    # -- encode (new DataLoader-based signature) ----------------------
     def encode(
+        self,
+        inputs: "DataLoader[Any]",
+        *,
+        task_metadata: Any = None,
+        hf_split: str = "",
+        hf_subset: str = "",
+        prompt_type: Any = None,
+        **kwargs: Any,
+    ) -> np.ndarray:
+        """Encode text batches from an MTEB ``DataLoader[BatchedInput]``.
+
+        Each batch is a dict with at least a ``"text"`` key containing
+        ``list[str]``.  Returns ``[N, dim]`` numpy array.
+        """
+        all_embeddings: list[np.ndarray] = []
+
+        self.model.eval()
+        with torch.no_grad():
+            for batch in inputs:
+                # BatchedInput is a dict; grab the text list
+                sentences: list[str] = batch["text"]
+                if not sentences:
+                    continue
+
+                if self.model.tokenizer is None:
+                    raise RuntimeError(
+                        "Tokenizer not loaded — cannot encode text for MTEB."
+                    )
+
+                tokens = self.model.tokenizer(
+                    sentences,
+                    padding=True,
+                    truncation=True,
+                    max_length=self.max_length,
+                    return_tensors="pt",
+                ).to(next(self.model.parameters()).device)
+
+                hidden = self.model.backbone(
+                    input_ids=tokens["input_ids"],
+                    attention_mask=tokens["attention_mask"],
+                )
+                emb = self.model.pooling(
+                    hidden_states=hidden,
+                    attention_mask=~tokens["attention_mask"].bool(),
+                )
+                emb = emb[:, : self.output_dim]
+                emb = torch.nn.functional.normalize(emb, p=2, dim=-1)
+                all_embeddings.append(emb.cpu().numpy())
+
+        if not all_embeddings:
+            return np.empty((0, self.output_dim), dtype=np.float32)
+        return np.concatenate(all_embeddings, axis=0)
+
+    # -- similarity helpers (required by EncoderProtocol) -------------
+    @staticmethod
+    def similarity(embeddings1: np.ndarray, embeddings2: np.ndarray) -> torch.Tensor:
+        """Cosine similarity matrix ``[N, M]``."""
+        e1 = torch.from_numpy(np.asarray(embeddings1, dtype=np.float32))
+        e2 = torch.from_numpy(np.asarray(embeddings2, dtype=np.float32))
+        e1 = torch.nn.functional.normalize(e1, p=2, dim=-1)
+        e2 = torch.nn.functional.normalize(e2, p=2, dim=-1)
+        return e1 @ e2.T
+
+    @staticmethod
+    def similarity_pairwise(
+        embeddings1: np.ndarray, embeddings2: np.ndarray
+    ) -> torch.Tensor:
+        """Element-wise cosine similarity ``[N]``."""
+        e1 = torch.from_numpy(np.asarray(embeddings1, dtype=np.float32))
+        e2 = torch.from_numpy(np.asarray(embeddings2, dtype=np.float32))
+        e1 = torch.nn.functional.normalize(e1, p=2, dim=-1)
+        e2 = torch.nn.functional.normalize(e2, p=2, dim=-1)
+        return (e1 * e2).sum(dim=-1)
+
+    # -- Legacy encode (used by InternalEvaluator) --------------------
+    def encode_sentences(
         self,
         sentences: list[str],
         batch_size: Optional[int] = None,
-        **kwargs: Any,
     ) -> np.ndarray:
-        """Encode *sentences* and return an ``[N, dim]`` numpy array."""
+        """Encode a plain list of strings (no DataLoader)."""
         bs = batch_size or self.batch_size
         all_embeddings: list[np.ndarray] = []
 
         self.model.eval()
         with torch.no_grad():
             for start in range(0, len(sentences), bs):
-                batch = sentences[start : start + bs]
+                batch_sents = sentences[start : start + bs]
 
                 if self.model.tokenizer is None:
-                    raise RuntimeError("Tokenizer not loaded — cannot encode text for MTEB.")
+                    raise RuntimeError(
+                        "Tokenizer not loaded — cannot encode text for MTEB."
+                    )
 
                 tokens = self.model.tokenizer(
-                    batch,
+                    batch_sents,
                     padding=True,
                     truncation=True,
                     max_length=self.max_length,
@@ -513,8 +624,8 @@ class InternalEvaluator:
             output_dim=self.output_dim,
         )
 
-        q_emb = wrapper.encode(queries)
-        p_emb = wrapper.encode(positives)
+        q_emb = wrapper.encode_sentences(queries)
+        p_emb = wrapper.encode_sentences(positives)
 
         pos_sims = (q_emb * p_emb).sum(axis=1)
 
@@ -527,7 +638,7 @@ class InternalEvaluator:
         if negatives is not None:
             if len(negatives) != len(queries):
                 raise ValueError("negatives must have same length as queries")
-            n_emb = wrapper.encode(negatives)
+            n_emb = wrapper.encode_sentences(negatives)
             neg_sims = (q_emb * n_emb).sum(axis=1)
             result["mean_negative_sim"] = float(np.mean(neg_sims))
             result["accuracy"] = float(np.mean(pos_sims > neg_sims))
